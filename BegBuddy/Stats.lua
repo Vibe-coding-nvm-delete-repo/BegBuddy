@@ -90,7 +90,7 @@ local KEYS = {}
 
 function KEYS.template(c)
   local n = c.templateUsed
-  if not n then return "(no template)", 99 end
+  if not n then return gotFunded(c) and "(direct trade)" or "(no template)", 99 end
   return (c.templateKind == "mail" and "Mail: " or "") .. n, 0
 end
 
@@ -194,6 +194,14 @@ end
 
 local STATUS_FIELD = { declined = "declined", blocked = "blocked", archived = "archived" }
 
+-- A contact belongs in the analytics funnel and breakdown tables if they were
+-- asked, replied, OR funded (e.g. a direct trade or alt trade). Dropping funded
+-- contacts with attempts == 0 caused total Gold/Items to disagree with Funded
+-- and left cohort rows showing 0 Funded / "-" Gold.
+local function inAnalytics(c)
+  return wasAsked(c) or gotReply(c) or gotFunded(c)
+end
+
 -- The funnel pass: one cheap look at every contact. The breakdowns are built later, one at a time, when asked for.
 local function tally(ctx, c)
   local fn = ctx.funnel
@@ -203,18 +211,21 @@ local function tally(ctx, c)
   fn.gold = fn.gold + (c.goldIn or 0)
   fn.items = fn.items + (c.itemsIn or 0)
   if (c.goldIn or 0) > 0 then fn.funders = fn.funders + 1 end
-  if not wasAsked(c) then return end
+  if not inAnalytics(c) then return end
 
-  fn.asked = fn.asked + 1
-  local at = askTime(c)
+  local asked = wasAsked(c)
+  if asked then fn.asked = fn.asked + 1 end
+  local at = askTime(c) or c.fundedAt or c.repliedAt
   if at and (not fn.firstAskAt or at < fn.firstAskAt) then fn.firstAskAt = at end
   if gotReply(c) then fn.replied = fn.replied + 1 end
   if gotFunded(c) then fn.funded = fn.funded + 1 end
   if isSuccess(c, ctx.stage, ctx.goldMin) then fn.success = fn.success + 1 end
-  local r = minutes(at, c.repliedAt)
-  if r then ctx.replyMins[#ctx.replyMins + 1] = r end
-  local g = minutes(at, c.fundedAt)
-  if g then ctx.fundMins[#ctx.fundMins + 1] = g end
+  if asked then
+    local r = minutes(askTime(c), c.repliedAt)
+    if r then ctx.replyMins[#ctx.replyMins + 1] = r end
+    local g = minutes(askTime(c), c.fundedAt)
+    if g then ctx.fundMins[#ctx.fundMins + 1] = g end
+  end
 end
 
 local function compute(stage, goldMin, minSample)
@@ -231,11 +242,12 @@ end
 local function buildRows(st, keyOf, needsClock)
   local rows = {}
   for _, c in pairs(BegDB.contacts or {}) do
-    if wasAsked(c) then
-      local label, order, token = keyOf(c, needsClock and clock(askTime(c)) or nil)
+    if inAnalytics(c) then
+      local ts = askTime(c) or c.fundedAt or c.repliedAt
+      local label, order, token = keyOf(c, needsClock and clock(ts) or nil)
       local r = rows[label]
       if not r then r = newRow(label, order, token); rows[label] = r end
-      r.sent = r.sent + 1
+      if wasAsked(c) then r.sent = r.sent + 1 end
       if gotReply(c) then r.replied = r.replied + 1 end
       if gotFunded(c) then r.funded = r.funded + 1 end
       if isSuccess(c, st.stage, st.goldMin) then r.success = r.success + 1 end
@@ -245,8 +257,9 @@ local function buildRows(st, keyOf, needsClock)
   end
   local list = {}
   for _, r in pairs(rows) do
-    r.rate = r.success / r.sent
-    r.goldPerAsk = r.gold / r.sent
+    local denom = r.sent > 0 and r.sent or math.max(r.replied, r.funded, 1)
+    r.rate = r.success / denom
+    r.goldPerAsk = r.gold / denom
     r.goldPerReply = r.replied > 0 and (r.gold / r.replied) or 0
     r.few = r.sent < st.minSample -- too few asks to trust the rate
     list[#list + 1] = r

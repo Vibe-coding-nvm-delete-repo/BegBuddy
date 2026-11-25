@@ -208,3 +208,31 @@ if scanPage and scanPage.fields and scanPage.fields.minLevel and scanPage.Hide t
   scanPage.Hide()
   eq("SettingsScan Hide() saves valid guildCooldownMinutes", BegDB.settings.guildCooldownMinutes, 45)
 end
+
+-- 9. Direct-traded / un-asked funders appear in Funnel AND Cohort tables ---
+Reset()
+ERR_TRADE_COMPLETE = "Trade complete."
+UnitName  = function(u) return u == "NPC" and "DirectDonor" or "Beggar" end
+UnitLevel = function(u) return u == "NPC" and 54 or 7 end
+UnitClass = function(u) return u == "NPC" and "Paladin" or "Warrior", u == "NPC" and "PALADIN" or "WARRIOR" end
+UnitRace  = function(u) return u == "NPC" and "Human" or "Human" end
+GetGuildInfo = function(u) return u == "NPC" and "Silver Hand" or nil end
+GetRealZoneText = function() return "Stormwind City" end
+GetTargetTradeMoney = function() return 25000 end
+GetTradeTargetItemInfo = function(i) if i == 1 then return "Runecloth Bag", nil, 1 end end
+GetTradeTargetItemLink = function(i) if i == 1 then return "[Runecloth Bag]" end end
+Fire("TRADE_SHOW")
+Fire("TRADE_ACCEPT_UPDATE", 1, 1)
+Fire("UI_INFO_MESSAGE", 0, ERR_TRADE_COMPLETE)
+local dd = NS.FindContact("DirectDonor")
+eq("direct trader captures NPC level", dd and dd.level, 54)
+eq("direct trader captures NPC class", dd and dd.class, "Paladin")
+eq("direct trader captures NPC guild", dd and dd.guild, "Silver Hand")
+local stDirect = NS.Stats()
+eq("direct trader counted in funnel.funded even with 0 asks", stDirect.funnel.funded, 1)
+eq("direct trader counted in funnel.gold", stDirect.funnel.gold, 25000)
+local lcDirect = NS.CohortRows("level_class", "gold", true)
+eq("direct trader appears in Level x Class cohort table", lcDirect[1] and lcDirect[1].label, "50-59 Paladin")
+eq("cohort row carries direct trader gold", lcDirect[1] and lcDirect[1].gold, 25000)
+eq("cohort row carries direct trader items", lcDirect[1] and lcDirect[1].items, 1)
+

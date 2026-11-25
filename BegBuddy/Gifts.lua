@@ -94,14 +94,31 @@ local function offered()
   return copper, units, itemList
 end
 
+local function partnerMeta()
+  local info = {}
+  local lvl = tonumber(safe(_G.UnitLevel, "NPC"))
+  if lvl and lvl > 0 then info.level = lvl end
+  local cls, tok = safe(_G.UnitClass, "NPC")
+  if type(cls) == "string" and ns.Readable(cls) and cls ~= "" then info.class = cls end
+  if type(tok) == "string" and ns.Readable(tok) and tok ~= "" then info.classToken = ns.ClassToken(tok, cls) end
+  local race = safe(_G.UnitRace, "NPC")
+  if type(race) == "string" and ns.Readable(race) and race ~= "" then info.race = race end
+  local guild = safe(_G.GetGuildInfo, "NPC")
+  if type(guild) == "string" and ns.Readable(guild) and guild ~= "" then info.guild = guild end
+  local zone = safe(_G.GetRealZoneText) or safe(_G.GetZoneText)
+  if type(zone) == "string" and ns.Readable(zone) and zone ~= "" then info.zone = zone end
+  return info
+end
+
 local function snapshotLive()
   if not trade.open then return end
   if not trade.name then trade.name = partnerName() end
+  if not trade.meta then trade.meta = partnerMeta() end
   trade.liveCopper, trade.liveUnits, trade.liveItems = offered()
 end
 
 function ns.TradeOpened()
-  trade = { open = true, name = partnerName(), accepted = false, copper = 0, units = 0, itemList = {} }
+  trade = { open = true, name = partnerName(), meta = partnerMeta(), accepted = false, copper = 0, units = 0, itemList = {} }
 end
 
 function ns.TradeUpdated()
@@ -135,6 +152,7 @@ end
 function ns.TradeCompleted()
   local accepted = trade.accepted
   local name = trade.name
+  local meta = trade.meta
   local copper = trade.copper or 0
   local units = trade.units or 0
   local itemList = trade.itemList
@@ -143,9 +161,12 @@ function ns.TradeCompleted()
 
   local c = ns.FindContact(name)
   -- If they aren't in the CRM yet and aren't a friend/guildmate/group member,
-  -- auto-create them so every incoming deal is tracked & closed automatically.
+  -- auto-create them (with level/class/race/guild/zone from the trade target)
+  -- so every incoming deal is tracked & closed in Analytics automatically.
   if not c and not (ns.IsKnownPlayer and ns.IsKnownPlayer(name)) then
-    c = ns.EnsureContact(name)
+    c = ns.EnsureContact(name, meta)
+  elseif c and meta then
+    ns.EnsureContact(c.full or name, meta)
   end
   if not c then return false end
   if not ns.RecordGift(c, copper, units, "trade", itemList) then return false end
