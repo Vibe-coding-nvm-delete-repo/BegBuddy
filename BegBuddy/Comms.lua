@@ -521,6 +521,7 @@ function ns.OnWhisperOut(text, target)
   local fromAuto = wasLoaded and ns.pending.auto
 
   ns.PushHistory(c, "out", text)
+  if ns.SmartReplyRemove then ns.SmartReplyRemove(c.key) end
   ns.lastSendAt  = GetTime()
   ns.lastSendKey = c.key
   ns.pending = nil
@@ -553,6 +554,7 @@ local function TrackStranger(text, sender)
   ns.PushHistory(c, "in", text)
   ns.SetStatus(c, ns.STATUS.REPLIED)
   ns.Print(string.format("Reply from %s (not from a scan, added to Replied).", c.name))
+  if ns.UI and ns.UI.OnNewReply then ns.UI.OnNewReply(c, text) end
 end
 
 function ns.OnWhisperIn(text, sender)
@@ -579,7 +581,7 @@ function ns.OnWhisperIn(text, sender)
   if ns.activeContact ~= c then
     ns.unread[c.key] = true
   end
-  if ns.UI then ns.UI.OnNewReply(c) end
+  if ns.UI then ns.UI.OnNewReply(c, text) end
 end
 
 ----------------------------------------------------------------------

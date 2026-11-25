@@ -53,6 +53,24 @@ local function PlaceButtons(f, shown, avail)
   return (#shown > 0) and ((row + 1) * (ROW_H + GAP) - GAP) or 0
 end
 
+-- Single source of truth for the detail pane's bottom stack:
+--   reply row -> optional Quick strip -> optional Smart Auto-Reply bar -> chat history.
+local function LayoutDetailBottom(f)
+  local detail = f.detail
+  if not detail or not detail.history then return end
+  local qH = (f.quick and f.quick.height) or 0
+  local y = STRIP_Y + (qH > 0 and (qH + 4) or 0)
+  local bar = detail.smartBar
+  if bar and bar:IsShown() then
+    bar:ClearAllPoints()
+    bar:SetPoint("BOTTOMLEFT", detail, "BOTTOMLEFT", 10, y)
+    bar:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -10, y)
+    y = y + (bar.barHeight or 48) + 4
+  end
+  detail.history:SetPoint("BOTTOMRIGHT", -10, y)
+end
+W.LayoutDetailBottom = LayoutDetailBottom
+
 -- Lays the strip out again, only when the messages, the width or the fold changed.
 local function Layout(f)
   local q = f.quick
@@ -66,10 +84,10 @@ local function Layout(f)
   if q.sig == sig then return end
   q.sig = sig
   local h = open and PlaceButtons(f, shown, avail) or 0
+  q.height = h
   q.strip:SetShown(open)
   q.strip:SetHeight(math.max(h, 1))
-  -- The conversation gives up exactly the room the strip takes.
-  detail.history:SetPoint("BOTTOMRIGHT", -10, STRIP_Y + ((h > 0) and (h + 6) or 0))
+  LayoutDetailBottom(f)
 end
 
 -- Called with every redraw. `usable` is false in combat: the buttons grey out.

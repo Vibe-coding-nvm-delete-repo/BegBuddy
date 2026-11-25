@@ -24,6 +24,7 @@ ns.COMMAND_HELP = {
   pause = "stop sending",
   resume = "allow sending again",
   leave = "leave your party or raid",
+  queue = "open the floating 1-click Smart Reply Queue",
   copilot = "toggle WoW /chatlog for BegBuddy AI Copilot",
   save = "ask the client to write SavedVariables",
   clear = "move everyone in Queued to Archived",
@@ -78,6 +79,7 @@ function C.resume()
 end
 
 function C.leave() ns.LeaveGroup() end
+function C.queue() if ns.UI and ns.UI.OpenSmartQueue then ns.UI.OpenSmartQueue() end end
 function C.copilot() ns.ToggleCopilotChatLog() end
 
 function C.export()

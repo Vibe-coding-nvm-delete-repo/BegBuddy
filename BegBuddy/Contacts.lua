@@ -131,6 +131,7 @@ function ns.SetStatus(c, status, note)
     c.repliedAt = now
   elseif ns.TERMINAL[status] or status == ns.STATUS.ARCHIVED then
     c.closedAt = now
+    if ns.SmartReplyRemove then ns.SmartReplyRemove(c.key) end
   end
   if note then c.note = note end
 
@@ -186,6 +187,7 @@ local function ForgetSession()
   ns.warnCount, ns.firstWarnAt, ns.lastScan = 0, nil, nil
   ns.sessionFirstAskAt, ns.sessionGoldIn, ns.sessionItemsIn = nil, 0, 0
   if ns.ClearSplits then ns.ClearSplits() end
+  if ns.SmartReplyClear then ns.SmartReplyClear() end
   if ns.mail then ns.mail.lastResult = nil end
   if ns.UI and ns.UI.list then ns.UI.list.selectedKey = nil end
 end
@@ -280,9 +282,15 @@ function ns.NeedsReply(c)
   local h = c.history
   if type(h) ~= "table" or #h == 0 then return false end
   for i = #h, 1, -1 do
-    local d = h[i] and h[i].dir
-    if d == "in" then return true end
+    local entry = h[i]
+    local d = entry and entry.dir
     if d == "out" then return false end
+    if d == "in" then
+      local t = tostring(entry.text or "")
+      if t:sub(1, 8) ~= "[trade] " and t:sub(1, 7) ~= "[mail] " then
+        return true
+      end
+    end
   end
   return false
 end

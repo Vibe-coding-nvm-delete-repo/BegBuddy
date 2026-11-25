@@ -173,10 +173,10 @@ end
 
 function ns.UI.ToggleSettings() ZipUI.Open("begbuddy") end
 
-function ns.UI.OnNewReply(contact)
+function ns.UI.OnNewReply(contact, incomingText)
   if ns.UI.frame and ns.UI.frame:IsShown() then ns.RefreshUI() end
-  if contact and ns.UI.ShowSmartReply and BegDB and BegDB.settings and BegDB.settings.smartReplyPopup then
-    ns.UI.ShowSmartReply(contact)
+  if contact and contact.status ~= ns.STATUS.BLOCKED and ns.UI.ShowSmartReply then
+    ns.UI.ShowSmartReply(contact, incomingText)
   end
 end
 

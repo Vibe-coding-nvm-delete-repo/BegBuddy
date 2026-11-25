@@ -41,8 +41,8 @@ end
 function ns.SettingsCloseout(page)
   local c = { page = page, switches = {} }
 
-  S.Label(page, "1-Click Smart Reply Bar (on incoming whispers)", 0, 0, ACCENT)
-  addSwitch(c, "Pop floating 1-click Smart Reply bar when a contact whispers you", "smartReplyPopup", 20)
+  S.Label(page, "1-Click Smart Reply Queue (on incoming whispers)", 0, 0, ACCENT)
+  addSwitch(c, "Pop floating 1-click Smart Reply Queue when a contact whispers you", "smartReplyPopup", 20)
   S.Label(page, "My meet-up location:", 0, 50, WHITE)
   c.locBox = S.Input(page, 386, 128, 46, 120)
   c.locBox:SetScript("OnTextChanged", function(self)
@@ -81,9 +81,8 @@ function ns.SettingsCloseout(page)
     local sample = { key = "sample", name = "Generous", classToken = "PALADIN", level = 60 }
     ns.UI.ShowTradeToast(sample, 15000, 1, "1g 50s and Linen Bag", true)
   end)
-  S.Button(page, "Preview Smart Reply Bar", 170, 156, 352, function()
-    local sample = { key = "sample", name = "Shadow Dru", classToken = "DRUID", level = 55 }
-    ns.UI.ShowSmartReply(sample, "haha sure where are you at?", true)
+  S.Button(page, "Preview Smart Reply Queue", 182, 156, 352, function()
+    if ns.UI.PreviewSmartReplyQueue then ns.UI.PreviewSmartReplyQueue() end
   end)
 
   S.Note(page, "Both floating bars can be dragged anywhere on screen. Every whisper/invite/friend send runs strictly on your click (100% ToS-safe).", 0, 386)

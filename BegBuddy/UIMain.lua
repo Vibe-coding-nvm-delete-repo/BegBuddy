@@ -350,7 +350,12 @@ local function MainList(f)
 
   local nrBtn = MakeButton(bar, WithIcon("reply", "Reply"), 116)
   nrBtn:SetPoint("LEFT", sb, "RIGHT", 4, 0)
-  nrBtn:SetScript("OnClick", function()
+  if nrBtn.RegisterForClicks then nrBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
+  nrBtn:SetScript("OnClick", function(_, button)
+    if button == "RightButton" then
+      if ns.UI and ns.UI.OpenSmartQueue then ns.UI.OpenSmartQueue() end
+      return
+    end
     if f.activeTab ~= ns.STATUS.REPLIED then
       f.activeTab = ns.STATUS.REPLIED
       f.listFilters.needsReply = true
@@ -358,6 +363,23 @@ local function MainList(f)
       f.listFilters.needsReply = not f.listFilters.needsReply
     end
     ns.RefreshUI()
+  end)
+  nrBtn:SetScript("OnEnter", function(self)
+    if self.SetBackdropColor then self:SetBackdropColor(0.20, 0.20, 0.24, 1) end
+    if GameTooltip then
+      GameTooltip:SetOwner(self, "ANCHOR_TOP")
+      GameTooltip:SetText("Needs Reply / Smart Reply Queue", 1, 0.82, 0)
+      GameTooltip:AddLine("Left-click: filter Replied tab to people waiting on your reply.", 0.9, 0.9, 0.9, true)
+      GameTooltip:AddLine("Right-click: pop open the floating Smart Reply Queue.", 0.5, 0.95, 0.5, true)
+      GameTooltip:Show()
+    end
+  end)
+  nrBtn:SetScript("OnLeave", function(self)
+    if self.SetBackdropColor then
+      if self.activeTab then self:SetBackdropColor(0.14, 0.34, 0.20, 1)
+      else self:SetBackdropColor(0.12, 0.12, 0.14, 0.95) end
+    end
+    if GameTooltip then GameTooltip:Hide() end
   end)
   f.needsReplyBtn = nrBtn
 
@@ -641,6 +663,7 @@ local function BuildMain()
   ClearButton(f)
   ClearAllButton(f)
   ns.W.BuildQuick(f)
+  if ns.W.BuildSmartBar then ns.W.BuildSmartBar(f) end
 
   f:HookScript("OnShow", function() ns.RefreshUI() end)
   f:HookScript("OnHide", function()

@@ -15,6 +15,7 @@ Export.lua
 Scan.lua
 WhoResults.lua
 Comms.lua
+SmartReply.lua
 Quick.lua
 Guard.lua
 Mail.lua

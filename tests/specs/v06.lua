@@ -315,29 +315,109 @@ IsInRaid = function() return false end
 GetNumGroupMembers = function() return 2 end
 UnitInParty = function(n) return n == "WhaleDonor" end
 
--- A. Smart Reply intent detection & 1-click bar on incoming whisper
+-- A. Modular Smart Reply Intent Engine (tested on real tricky whispers)
 eq("DetectWhisperIntent location", NS.DetectWhisperIntent("haha sure where are you at?"), "location")
 eq("DetectWhisperIntent invite", NS.DetectWhisperIntent("inv me plz"), "invite")
-eq("DetectWhisperIntent decline", NS.DetectWhisperIntent("no get a job"), "decline")
-eq("DetectWhisperIntent amount", NS.DetectWhisperIntent("how much do u need?"), "amount")
-eq("DetectWhisperIntent trade", NS.DetectWhisperIntent("omw to stormwind"), "trade")
+eq("DetectWhisperIntent decline", NS.DetectWhisperIntent("no sorry im broke"), "decline")
+eq("DetectWhisperIntent hostile", NS.DetectWhisperIntent("no get a job"), "hostile")
+eq("DetectWhisperIntent unavailable (screenshot bug!)", NS.DetectWhisperIntent("i just left the city im sorry"), "unavailable")
+eq("DetectWhisperIntent unavailable (flight path with opening yes)", NS.DetectWhisperIntent("yes absolutely but I'm on the flight path out I was just coming in by boat. so sorry :("), "unavailable")
+eq("DetectWhisperIntent willing (Sure no problem is NOT decline)", NS.DetectWhisperIntent("Sure no problem"), "willing")
+eq("DetectWhisperIntent willing (dont need want them)", NS.DetectWhisperIntent("I got 2 6slots i made, i dont need. want them?"), "willing")
+eq("DetectWhisperIntent mail overrides sry", NS.DetectWhisperIntent("oh hey just saw your msg after i took the summon sry @_@ i can send you some thru the mail?"), "mail")
+eq("DetectWhisperIntent skeptic bot check", NS.DetectWhisperIntent("are you a bot?"), "skeptic")
+eq("DetectWhisperIntent leave_group", NS.DetectWhisperIntent("leave grp"), "leave_group")
+eq("DetectWhisperIntent question", NS.DetectWhisperIntent("how much do u need?"), "question")
+eq("DetectWhisperIntent arriving", NS.DetectWhisperIntent("omw"), "arriving")
+eq("DetectWhisperIntent general ambiguous", NS.DetectWhisperIntent("lol"), "general")
 
-local sr = NS.EnsureContact("Shadow Dru", { level = 55, class = "Druid", classToken = "DRUID" })
+local _, genA1 = NS.SmartReplyActions(nil, "lol")
+eq("Ambiguous general reply NEVER defaults to Send Location", genA1.id ~= "loc", true)
+local _, awayA1 = NS.SmartReplyActions(nil, "i just left the city im sorry")
+eq("Away/left-city primary action is polite exit + decline (never location)", awayA1.decline, true)
+
+-- B. Floating Multi-Item Smart Reply QUEUE (FIFO, dedup, scroll, fail-safe on replyGap)
+NS.SmartReplyClear()
+local sr1 = NS.EnsureContact("Shadow Dru", { level = 55, class = "Druid", classToken = "DRUID" })
+local sr2 = NS.EnsureContact("Bownel Bigjon", { level = 60, class = "Warrior", classToken = "WARRIOR" })
+local sr3 = NS.EnsureContact("Frosty Mage", { level = 60, class = "Mage", classToken = "MAGE" })
+local sr4 = NS.EnsureContact("Gold Priest", { level = 60, class = "Priest", classToken = "PRIEST" })
+local sr5 = NS.EnsureContact("Kind Rogue", { level = 60, class = "Rogue", classToken = "ROGUE" })
 BegDB.settings.smartReplyPopup = true
 BegDB.settings.smartReplyLocation = "by Ironforge bank"
+BegDB.settings.replyGap = 2
+
 NS.OnWhisperIn("sure where are you at?", "Shadow Dru")
-truthy("Smart Reply mini-bar pops on incoming whisper", NS.UI.smartReply and NS.UI.smartReply:IsShown())
-NS.UI.smartReply.b1:GetScript("OnClick")(NS.UI.smartReply.b1)
+NS.OnWhisperIn("i just left the city im sorry", "Bownel Bigjon")
+NS.OnWhisperIn("can u inv me? diff layer", "Frosty Mage")
+-- Second message from same player deduplicates in-place and increments count without jumping FIFO order
+NS.OnWhisperIn("where are u?", "Shadow Dru")
+eq("Smart Reply Queue deduplicates repeat whisper from same contact", NS.SmartReplyCount(), 3)
+eq("Smart Reply Queue preserves FIFO order (row 1 stays Shadow Dru)", NS.smartQueue[1].contact.name, "Shadow Dru")
+eq("Smart Reply Queue tracks repeat message count", NS.smartQueue[1].count, 2)
+truthy("Smart Reply Queue popup is shown", NS.UI.smartReply and NS.UI.smartReply:IsShown())
+eq("Queue row 2 is Bownel Bigjon classified as unavailable", NS.UI.smartReply.rows[2].data.intent, "unavailable")
+
+-- 5 items in queue shows 4 pooled rows + scroll footer
+NS.OnWhisperIn("how much ya need?", "Gold Priest")
+NS.OnWhisperIn("i can mail u a bag", "Kind Rogue")
+eq("Smart Reply Queue holds all 5 pending contacts", NS.SmartReplyCount(), 5)
+truthy("Queue footer shows scroll indicator when > 4 items", NS.UI.smartReply.footer:IsShown())
+NS.UI.smartReply:GetScript("OnMouseWheel")(NS.UI.smartReply, -1)
+eq("Scrolling queue shifts offset to 1", NS.UI.smartReply.offset, 1)
+eq("Row 4 now displays 5th queued player (Kind Rogue)", NS.UI.smartReply.rows[4].entry.contact.name, "Kind Rogue")
+NS.UI.smartReply:GetScript("OnMouseWheel")(NS.UI.smartReply, 1) -- scroll back to top
+
+-- Click row 1 (Shadow Dru) sends location & removes only Shadow Dru
+NS.lastSendAt = nil
+NS.UI.smartReply.rows[1].b1:GetScript("OnClick")(NS.UI.smartReply.rows[1].b1)
 eq("Smart Reply 1-click sends location whisper", #sentWhispers, 1)
 has("Smart Reply whisper includes custom location", sentWhispers[1].msg, "by Ironforge bank")
-eq("Smart Reply bar hides after clicking", NS.UI.smartReply:IsShown(), false)
+eq("Clicking row 1 removes Shadow Dru leaving 4 in queue", NS.SmartReplyCount(), 4)
+eq("Queue stays visible while remaining items exist", NS.UI.smartReply:IsShown(), true)
 
--- Decline 1-click marks contact declined
+-- Fail-safe: immediate second click inside replyGap MUST NOT drop Bownel Bigjon from queue or mark declined
+NS.UI.smartReply.rows[1].b1:GetScript("OnClick")(NS.UI.smartReply.rows[1].b1)
+eq("replyGap throttle preserves Bownel Bigjon in queue", NS.SmartReplyCount(), 4)
+eq("replyGap throttle does NOT prematurely decline contact", sr2.status, "replied")
+
+-- After replyGap passes, clicking Bownel Bigjon sends polite exit + declines + removes from queue
 NS.lastSendAt = nil
-NS.OnWhisperIn("no sorry im broke", "Shadow Dru")
-truthy("Smart Reply pops for decline", NS.UI.smartReply:IsShown())
-NS.UI.smartReply.b1:GetScript("OnClick")(NS.UI.smartReply.b1)
-eq("Decline 1-click moves contact to declined", sr.status, "declined")
+NS.UI.smartReply.rows[1].b1:GetScript("OnClick")(NS.UI.smartReply.rows[1].b1)
+eq("Away/decline 1-click moves Bownel Bigjon to declined", sr2.status, "declined")
+eq("Queue drops to 3 after Bownel Bigjon handled", NS.SmartReplyCount(), 3)
+
+-- Replying manually via OnWhisperOut removes Frosty Mage from queue automatically
+NS.OnWhisperOut("inv sent!", "Frosty Mage")
+eq("Manual reply removes Frosty Mage from queue", NS.SmartReplyCount(), 2)
+
+-- C. Embedded Smart Auto-Reply Bar inside BegBuddy Main Window
+NS.UI.Open()
+local mainF = NS.UI.frame
+mainF.activeTab = NS.STATUS.REPLIED
+NS.activeContact = sr4 -- Gold Priest ("how much ya need?")
+NS.RefreshUINow()
+truthy("BegBuddy main window shows embedded Smart Auto-Reply bar", mainF.detail.smartBar and mainF.detail.smartBar:IsShown())
+eq("Embedded Smart Bar detects question intent for Gold Priest", mainF.detail.smartBar.intent, "question")
+has("Embedded Smart Bar Queue button shows live queue count", mainF.detail.smartBar.queueBtn.text:GetText(), "Queue (2)")
+
+NS.lastSendAt = nil
+local beforeMainSend = #sentWhispers
+mainF.detail.smartBar.b1:GetScript("OnClick")(mainF.detail.smartBar.b1)
+eq("Embedded Smart Auto-Reply 1-click sends whisper from main window", #sentWhispers, beforeMainSend + 1)
+eq("Embedded Smart Bar removes Gold Priest from floating queue", NS.SmartReplyCount(), 1)
+eq("Embedded Smart Bar advances to next unanswered Replied contact (Kind Rogue)", NS.activeContact and NS.activeContact.name, "Kind Rogue")
+
+-- Clearing queue hides floating frame cleanly
+NS.SmartReplyClear()
+eq("Clearing queue empties all items", NS.SmartReplyCount(), 0)
+eq("Floating queue frame hides automatically when empty", NS.UI.smartReply:IsShown(), false)
+
+-- Queued contact with no incoming whispers hides embedded Smart Bar cleanly
+local freshQ = NS.EnsureContact("SilentQueue", { level = 60, class = "Warrior" })
+NS.activeContact = freshQ
+NS.RefreshUINow()
+eq("Embedded Smart Bar hides for contacts with no incoming whispers", mainF.detail.smartBar:IsShown(), false)
 
 -- B. Post-Trade Close-Out toast: standard vs big-tip + 1-click Thanks + Leave + Friend
 NS.lastSendAt = nil

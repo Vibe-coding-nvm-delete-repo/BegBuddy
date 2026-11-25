@@ -475,4 +475,7 @@ function ns.RefreshUINow()
   PaintEnabled(f, blockedNow, hasContact)
   -- Quick messages stay live with nobody open: the chat box may be their target.
   W.PaintQuick(f, not blockedNow)
+  if W.PaintSmartBar then
+    W.PaintSmartBar(f, (not statsOn and hasContact) and c or nil, not blockedNow)
+  end
 end
