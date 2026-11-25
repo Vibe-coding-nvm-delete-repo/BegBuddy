@@ -40,13 +40,13 @@ node ..\copilot\test-copilot.mjs
 
 ### BegBuddy Copilot (AI Reply Helper)
 
-An optional, safe human-in-the-loop companion app that watches WoW's built-in `/chatlog` (`WoWChatLog.txt`), drafts natural replies via DeepSeek, and auto-copies the newest reply to your clipboard so you just press **`R` → `Ctrl+V` → `Enter`** in WoW. Never touches WoW memory or injects keystrokes.
+An optional, safe human-in-the-loop companion app that watches WoW's built-in `/chatlog` (`WoWChatLog.txt`), drafts natural replies via **Cloudflare Workers AI** (default: `@cf/meta/llama-3.1-8b-instruct-fp8-fast` — **~5,900 FREE replies/day** inside Cloudflare's 10,000 free daily Neurons, plus Gemma 4 26B, Granite 4 Micro, and DeepSeek presets), and auto-copies the newest reply to your clipboard so you just press **`R` → `Ctrl+V` → `Enter`** in WoW. Never touches WoW memory or injects keystrokes.
 
 ```powershell
 .\Start-Copilot.ps1
 ```
 
-Type `/chatlog` once in WoW, paste your DeepSeek API key in the corner HUD (saved locally in gitignored `copilot/config.local.json`), and set your current location.
+Or double-click **`BegBuddy Copilot.bat`**, click **`AI Copilot`** in BegBuddy's top bar once to turn on `/chatlog`, and paste your Cloudflare Workers AI token in the corner HUD (saved locally in gitignored `copilot/config.local.json`).
 
 ### Template Variables
 

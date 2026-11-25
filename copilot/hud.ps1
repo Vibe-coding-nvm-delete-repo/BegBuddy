@@ -9,11 +9,12 @@ $baseUrl = "http://127.0.0.1:$Port"
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="BegBuddy Copilot" Width="400" Height="490"
+        Title="BegBuddy Copilot" Width="420" Height="530"
         Topmost="True" WindowStartupLocation="Manual" Left="40" Top="40"
         Background="#111216" Foreground="#E6E6EB" ResizeMode="CanResizeWithGrip">
   <Grid Margin="10">
     <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
@@ -35,36 +36,50 @@ $baseUrl = "http://127.0.0.1:$Port"
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="62"/>
         <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="52"/>
       </Grid.ColumnDefinitions>
-      <TextBlock Text="Location:" Foreground="#9A9CA8" VerticalAlignment="Center" FontSize="12"/>
-      <TextBox x:Name="LocBox" Grid.Column="1" Background="#1A1B22" Foreground="#FFFFFF" BorderBrush="#2E313D" Padding="4,2" FontSize="12"/>
-      <Button x:Name="BtnSaveLoc" Grid.Column="2" Content="Save" Margin="4,0,0,0" Background="#1B4D2A" Foreground="#FFFFFF" BorderBrush="#35A858" FontSize="11" FontWeight="SemiBold"/>
+      <TextBlock Text="AI Model:" Foreground="#9A9CA8" VerticalAlignment="Center" FontSize="12"/>
+      <ComboBox x:Name="ModelBox" Grid.Column="1" Background="#1A1B22" Foreground="#111216" BorderBrush="#2E313D" Padding="4,2" FontSize="11.5">
+        <ComboBoxItem Tag="cf-llama-fast" Content="Cloudflare: Llama 3.1 8B Fast (~5,900 free/day)"/>
+        <ComboBoxItem Tag="cf-gemma4" Content="Cloudflare: Gemma 4 26B (~4,000 free/day)"/>
+        <ComboBoxItem Tag="cf-granite-micro" Content="Cloudflare: Granite 4 Micro (~17,700 free/day)"/>
+        <ComboBoxItem Tag="deepseek" Content="DeepSeek Chat"/>
+      </ComboBox>
     </Grid>
 
     <Grid Grid.Row="2" Margin="0,0,0,6">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="62"/>
         <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="52"/>
+        <ColumnDefinition Width="56"/>
       </Grid.ColumnDefinitions>
-      <TextBlock Text="DeepSeek:" Foreground="#9A9CA8" VerticalAlignment="Center" FontSize="12"/>
+      <TextBlock Text="Location:" Foreground="#9A9CA8" VerticalAlignment="Center" FontSize="12"/>
+      <TextBox x:Name="LocBox" Grid.Column="1" Background="#1A1B22" Foreground="#FFFFFF" BorderBrush="#2E313D" Padding="4,2" FontSize="12"/>
+      <Button x:Name="BtnSaveLoc" Grid.Column="2" Content="Save" Margin="4,0,0,0" Background="#1B4D2A" Foreground="#FFFFFF" BorderBrush="#35A858" FontSize="11" FontWeight="SemiBold"/>
+    </Grid>
+
+    <Grid Grid.Row="3" Margin="0,0,0,6">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="62"/>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="56"/>
+      </Grid.ColumnDefinitions>
+      <TextBlock Text="API Key:" Foreground="#9A9CA8" VerticalAlignment="Center" FontSize="12"/>
       <PasswordBox x:Name="KeyBox" Grid.Column="1" Background="#1A1B22" Foreground="#FFFFFF" BorderBrush="#2E313D" Padding="4,2" FontSize="12"/>
       <Button x:Name="BtnSaveKey" Grid.Column="2" Content="Set Key" Margin="4,0,0,0" Background="#22242E" Foreground="#FFD100" BorderBrush="#5A4B20" FontSize="11" FontWeight="SemiBold"/>
     </Grid>
 
-    <DockPanel Grid.Row="3" Margin="0,0,0,8">
-      <CheckBox x:Name="ChkAutoCopy" Content="Auto-copy newest reply (press R -> Ctrl+V -> Enter)" IsChecked="True"
+    <DockPanel Grid.Row="4" Margin="0,0,0,8">
+      <CheckBox x:Name="ChkAutoCopy" Content="Auto-copy newest reply (R -> Ctrl+V -> Enter)" IsChecked="True"
                 Foreground="#B8BAC6" FontSize="11.5" VerticalAlignment="Center"/>
       <TextBlock x:Name="KeyStatus" Text="" Foreground="#888A96" FontSize="11" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
     </DockPanel>
 
-    <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto">
+    <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto">
       <StackPanel x:Name="DraftsPanel"/>
     </ScrollViewer>
 
-    <TextBlock Grid.Row="5" Margin="0,6,0,0" FontSize="11" Foreground="#7A7D8A" TextWrapping="Wrap"
-               Text="In WoW: type /chatlog once. When a whisper arrives, just press R -> Ctrl+V -> Enter."/>
+    <TextBlock Grid.Row="6" Margin="0,6,0,0" FontSize="11" Foreground="#7A7D8A" TextWrapping="Wrap"
+               Text="In WoW: click AI Copilot in BegBuddy once. When a whisper arrives, just press R -> Ctrl+V -> Enter."/>
   </Grid>
 </Window>
 "@
@@ -74,6 +89,7 @@ $win = [Windows.Markup.XamlReader]::Load($reader)
 
 $StatusBadge = $win.FindName("StatusBadge")
 $StatusText  = $win.FindName("StatusText")
+$ModelBox    = $win.FindName("ModelBox")
 $LocBox      = $win.FindName("LocBox")
 $KeyBox      = $win.FindName("KeyBox")
 $BtnSaveLoc  = $win.FindName("BtnSaveLoc")
@@ -105,6 +121,10 @@ function Render-State($s) {
   if (-not $script:loadedCfg) {
     $LocBox.Text = [string]$s.config.location
     $ChkAutoCopy.IsChecked = [bool]$s.config.autoCopy
+    $wantPreset = if ($s.config.preset) { [string]$s.config.preset } else { "cf-llama-fast" }
+    for ($i = 0; $i -lt $ModelBox.Items.Count; $i++) {
+      if ($ModelBox.Items[$i].Tag -eq $wantPreset) { $ModelBox.SelectedIndex = $i; break }
+    }
     $script:loadedCfg = $true
   }
 
@@ -216,6 +236,13 @@ function Render-State($s) {
   }
 }
 
+$ModelBox.Add_SelectionChanged({
+  if (-not $script:loadedCfg) { return }
+  $item = $ModelBox.SelectedItem
+  if ($item -and $item.Tag) {
+    try { Post-Api "/api/config" @{ preset = [string]$item.Tag } | Out-Null } catch {}
+  }
+})
 $BtnSaveLoc.Add_Click({
   try { Post-Api "/api/config" @{ location = $LocBox.Text } | Out-Null } catch {}
 })

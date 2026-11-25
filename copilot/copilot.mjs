@@ -8,7 +8,7 @@ import http from "node:http";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseChatLogLine, shortName } from "./parser.mjs";
-import { generateReply } from "./llm.mjs";
+import { generateReply, MODEL_PRESETS } from "./llm.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOCAL_CONFIG_PATH = path.join(__dirname, "config.local.json");
@@ -21,15 +21,24 @@ export function loadLocalConfig(configPath = LOCAL_CONFIG_PATH) {
     location: "right outside the Stormwind AH steps",
     persona: "Friendly brand-new WoW Classic player trying to get their first bags and wand. Casual lowercase gamer style ('tysm', 'im', 'u', 'haha'). Warm, appreciative, never pushy.",
     autoCopy: true,
-    model: "deepseek-chat",
+    preset: "cf-llama-fast",
+    provider: "cloudflare",
+    model: "@cf/meta/llama-3.1-8b-instruct-fp8-fast",
+    cfAccountId: "",
     baseUrl: "https://api.deepseek.com",
-    apiKey: "",
+    apiKeys: { cloudflare: "", deepseek: "" },
     wowRoot: DEFAULT_WOW_ROOT,
   };
   try {
     if (fs.existsSync(configPath)) {
       const saved = JSON.parse(fs.readFileSync(configPath, "utf8"));
-      return { ...defaults, ...saved };
+      const merged = { ...defaults, ...saved };
+      merged.apiKeys = { ...defaults.apiKeys, ...(saved.apiKeys || {}) };
+      if (saved.apiKey && !merged.apiKeys[merged.provider || "cloudflare"]) {
+        merged.apiKeys[merged.provider || "cloudflare"] = saved.apiKey;
+      }
+      delete merged.apiKey;
+      return merged;
     }
   } catch { /* ignore corrupt config */ }
   return defaults;
@@ -106,9 +115,16 @@ export function createCopilot({
     return list;
   }
 
+  function onAccountResolved(acctId) {
+    if (acctId && acctId !== config.cfAccountId) {
+      config.cfAccountId = acctId;
+      try { saveLocalConfig(config, configPath); } catch { /* ignore */ }
+    }
+  }
+
   async function handleIncoming(sender, text) {
     const history = pushThread(sender, "in", text);
-    const res = await generateReply({ sender, text, history, config, fetchImpl });
+    const res = await generateReply({ sender, text, history, config, fetchImpl, onAccountResolved });
     const entry = {
       id: nextId++,
       at: Date.now(),
@@ -202,20 +218,27 @@ export function createCopilot({
   }
 
   function getState() {
-    const activeKey = (config.apiKey || process.env.DEEPSEEK_API_KEY || "").trim();
+    const provider = config.provider || "cloudflare";
+    const localKey = (config.apiKeys && config.apiKeys[provider]) || "";
+    const envKey = provider === "cloudflare" ? process.env.CLOUDFLARE_API_TOKEN : process.env.DEEPSEEK_API_KEY;
+    const activeKey = (localKey || envKey || "").trim();
     return {
       status: watchedFile ? "watching" : "waiting_for_chatlog",
       watchedFile,
       lastClipboardText,
+      presets: MODEL_PRESETS,
       config: {
         location: config.location,
         persona: config.persona,
         autoCopy: !!config.autoCopy,
+        preset: config.preset || "cf-llama-fast",
+        provider,
         model: config.model,
+        cfAccountSet: !!(config.cfAccountId || process.env.CLOUDFLARE_ACCOUNT_ID),
         baseUrl: config.baseUrl,
         apiKeySet: !!activeKey,
         apiKeyMasked: redactKey(activeKey),
-        apiKeySource: config.apiKey ? "local_config" : (process.env.DEEPSEEK_API_KEY ? "env" : "none"),
+        apiKeySource: localKey ? "local_config" : (envKey ? "env" : "none"),
       },
       drafts,
     };
@@ -225,7 +248,7 @@ export function createCopilot({
     const item = drafts.find((d) => d.id === Number(id));
     if (!item) return null;
     const history = threads.get(item.sender.toLowerCase()) || [{ dir: "in", text: item.incoming, at: item.at }];
-    const res = await generateReply({ sender: item.sender, text: item.incoming, history, config, fetchImpl });
+    const res = await generateReply({ sender: item.sender, text: item.incoming, history, config, fetchImpl, onAccountResolved });
     item.reply = res.reply;
     item.source = res.source;
     item.latencyMs = res.latencyMs || 0;
@@ -265,11 +288,24 @@ export function createCopilot({
         if (typeof body.location === "string") config.location = body.location.trim();
         if (typeof body.persona === "string") config.persona = body.persona.trim();
         if (typeof body.autoCopy === "boolean") config.autoCopy = body.autoCopy;
+        if (typeof body.preset === "string" && MODEL_PRESETS[body.preset]) {
+          config.preset = body.preset;
+          config.provider = MODEL_PRESETS[body.preset].provider;
+          config.model = MODEL_PRESETS[body.preset].model;
+        }
+        if (typeof body.provider === "string" && (body.provider === "cloudflare" || body.provider === "deepseek")) {
+          config.provider = body.provider;
+        }
         if (typeof body.model === "string" && body.model.trim()) config.model = body.model.trim();
+        if (typeof body.cfAccountId === "string") config.cfAccountId = body.cfAccountId.trim();
         if (typeof body.baseUrl === "string" && /^https:\/\/|^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\b/i.test(body.baseUrl.trim())) {
           config.baseUrl = body.baseUrl.trim();
         }
-        if (typeof body.apiKey === "string") config.apiKey = body.apiKey.trim();
+        if (typeof body.apiKey === "string") {
+          config.apiKeys = config.apiKeys || { cloudflare: "", deepseek: "" };
+          const targetProvider = config.provider || "cloudflare";
+          config.apiKeys[targetProvider] = body.apiKey.trim();
+        }
         saveLocalConfig(config, configPath);
         return json(200, getState());
       }
@@ -326,8 +362,16 @@ const HTML_UI = `<!doctype html><html><head><meta charset="utf-8"><title>BegBudd
 <div class="bar"><b>BegBuddy Copilot</b> <span id="st" class="pill wait">Loading...</span>
 <button class="sec" onclick="testW()">Test Whisper</button></div>
 <div class="bar">
+  <select id="preset" onchange="save()" style="flex:1;background:#1a1b22;color:#fff;border:1px solid #2e313d;border-radius:4px;padding:4px 6px;font-size:12px">
+    <option value="cf-llama-fast">Cloudflare: Llama 3.1 8B Fast (~5,900 free/day)</option>
+    <option value="cf-gemma4">Cloudflare: Gemma 4 26B (~4,000 free/day)</option>
+    <option value="cf-granite-micro">Cloudflare: Granite 4 Micro (~17,700 free/day)</option>
+    <option value="deepseek">DeepSeek Chat</option>
+  </select>
+</div>
+<div class="bar">
   <input id="loc" style="flex:1" placeholder="My location (e.g. Stormwind AH steps)">
-  <input id="key" type="password" style="width:150px" placeholder="DeepSeek API key">
+  <input id="key" type="password" style="width:150px" placeholder="Cloudflare / DeepSeek token">
   <button onclick="save()">Save</button>
 </div>
 <div id="list"></div>
@@ -340,7 +384,7 @@ async function load(){
   const st=document.getElementById('st');
   st.textContent=s.status==='watching'?'Watching WoWChatLog.txt':'Type /chatlog in WoW';
   st.className='pill'+(s.status==='watching'?'':' wait');
-  if(!loaded){document.getElementById('loc').value=s.config.location||'';loaded=true;}
+  if(!loaded){document.getElementById('loc').value=s.config.location||'';document.getElementById('preset').value=s.config.preset||'cf-llama-fast';loaded=true;}
   latestDrafts={};
   for(const d of s.drafts){latestDrafts[d.id]=d.reply;}
   document.getElementById('list').innerHTML=s.drafts.map(d=>\`<div class="card">
@@ -349,10 +393,10 @@ async function load(){
     <div class="rep">\${escHtml(d.reply)}</div>
     \${d.error?\`<div class="err">\${escHtml(d.error)}</div>\`:''}
     <div class="bar" style="margin:6px 0 0"><button onclick="cp(\${Number(d.id)})">Copy (R -> Ctrl+V -> Enter)</button>
-    <button class="sec" onclick="regen(\${Number(d.id)})">Retry</button></div></div>\`).join('') || '<div class="inc">Waiting for incoming whispers... (Type /chatlog once in WoW)</div>';
+    <button class="sec" onclick="regen(\${Number(d.id)})">Retry</button></div></div>\`).join('') || '<div class="inc">Waiting for incoming whispers... (Click AI Copilot in BegBuddy or type /chatlog once in WoW)</div>';
 }
 async function save(){
-  const body={location:document.getElementById('loc').value};
+  const body={location:document.getElementById('loc').value,preset:document.getElementById('preset').value};
   const k=document.getElementById('key').value.trim(); if(k) body.apiKey=k;
   await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   document.getElementById('key').value=''; load();

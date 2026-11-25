@@ -49,7 +49,9 @@ await test("parses unbracketed Unicode names cleanly", () => {
   assert.deepEqual(r2, { dir: "out", sender: "Søren", text: "hey there" });
 });
 
-await test("sanitizes LLM reply (single line, no quotes, strips /w <sender>, UTF-8 & surrogate-safe)", () => {
+await test("sanitizes LLM reply (single line, strips closed & truncated <think>, no quotes, strips /w <sender>, UTF-8 & surrogate-safe)", () => {
+  assert.equal(sanitizeWhisperReply("<think>reasoning here</think>\ntysm! im at AH", 240, "Bob"), "tysm! im at AH");
+  assert.equal(sanitizeWhisperReply("<think>cut off mid thought without closing tag", 240, "Bob"), "");
   assert.equal(sanitizeWhisperReply('  "/w Bob tysm!!\nsee u at AH"  ', 240, "Bob"), "tysm!! see u at AH");
   assert.equal(sanitizeWhisperReply('/w Shadow Dru tysm! im at SW AH', 240, "Shadow Dru"), "tysm! im at SW AH");
   assert.equal(sanitizeWhisperReply('/r tysm!!', 240, "Shadow Dru"), "tysm!!");
@@ -60,7 +62,44 @@ await test("sanitizes LLM reply (single line, no quotes, strips /w <sender>, UTF
   assert.equal(trimmed, "😀".repeat(5));
 });
 
-// 2. LLM client & fallback tests
+// 2. LLM client & fallback tests (Cloudflare Workers AI default + DeepSeek)
+await test("Cloudflare Workers AI auto-resolves account ID and calls Llama 3.1 8B Fast", async () => {
+  const prevAcct = process.env.CLOUDFLARE_ACCOUNT_ID;
+  delete process.env.CLOUDFLARE_ACCOUNT_ID;
+  try {
+    const urls = [];
+    let resolvedId = null;
+    const mockFetch = async (url, opts) => {
+      urls.push(url);
+      if (url.includes("/client/v4/accounts?per_page=5")) {
+        return { ok: true, status: 200, json: async () => ({ result: [{ id: "acct-demo-123" }] }) };
+      }
+      const body = JSON.parse(opts.body);
+      assert.equal(body.model, "@cf/meta/llama-3.1-8b-instruct-fp8-fast");
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: "tysm!! im at stormwind AH steps" } }] }),
+      };
+    };
+    const res = await generateReply({
+      sender: "Shadow Dru",
+      text: "sure where r u",
+      history: [{ dir: "in", text: "sure where r u" }],
+      config: { preset: "cf-llama-fast", provider: "cloudflare", apiKey: "cf-tok-9999", location: "Stormwind AH steps" },
+      fetchImpl: mockFetch,
+      onAccountResolved: (id) => { resolvedId = id; },
+    });
+    assert.equal(resolvedId, "acct-demo-123");
+    assert.ok(urls[1].includes("/accounts/acct-demo-123/ai/v1/chat/completions"));
+    assert.equal(res.reply, "tysm!! im at stormwind AH steps");
+    assert.equal(res.source, "llama-3.1-8b-instruct-fp8-fast");
+    assert.equal(res.error, null);
+  } finally {
+    if (prevAcct !== undefined) process.env.CLOUDFLARE_ACCOUNT_ID = prevAcct;
+  }
+});
+
 await test("DeepSeek 200 OK returns sanitized reply with multi-turn context", async () => {
   let capturedBody = null;
   const mockFetch = async (_url, opts) => {
@@ -78,7 +117,7 @@ await test("DeepSeek 200 OK returns sanitized reply with multi-turn context", as
       { dir: "out", text: "hey Shadow Dru! new to wow" },
       { dir: "in", text: "sure where r u" },
     ],
-    config: { apiKey: "sk-test-123456", location: "Stormwind AH" },
+    config: { preset: "deepseek", provider: "deepseek", model: "deepseek-chat", apiKey: "sk-test-123456", location: "Stormwind AH" },
     fetchImpl: mockFetch,
   });
   assert.equal(res.reply, "tysm!! im right outside stormwind AH");
@@ -88,22 +127,22 @@ await test("DeepSeek 200 OK returns sanitized reply with multi-turn context", as
   assert.equal(capturedBody.messages.length, 3); // system + out + in
 });
 
-await test("DeepSeek 401 falls back cleanly with actionable error message", async () => {
+await test("Cloudflare 401 falls back cleanly with actionable Workers AI token hint", async () => {
   const mockFetch = async () => ({
     ok: false,
     status: 401,
-    json: async () => ({ error: { message: "Authentication Fails" } }),
+    json: async () => ({ errors: [{ message: "Authentication error" }] }),
   });
   const res = await generateReply({
     sender: "Shadow Dru",
     text: "where are you?",
     history: [{ dir: "in", text: "where are you?" }],
-    config: { apiKey: "sk-bad", location: "Stormwind AH steps" },
+    config: { preset: "cf-llama-fast", provider: "cloudflare", cfAccountId: "acct-1", apiKey: "cf-bad", location: "Stormwind AH steps" },
     fetchImpl: mockFetch,
   });
   assert.equal(res.source, "fallback");
   assert.match(res.reply, /Stormwind AH steps/);
-  assert.match(res.error, /401/);
+  assert.match(res.error, /Workers AI/);
 });
 
 await test("Hostile/decline whisper is flagged skip=true", () => {
@@ -167,11 +206,30 @@ await test("File tailing + auto-copy + HTTP API work end-to-end", async () => {
     const cfgRes = await (await fetch(`${base}/api/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ location: "Ironforge Bank", apiKey: "sk-secret-9999" }),
+      body: JSON.stringify({ location: "Ironforge Bank", preset: "cf-gemma4", apiKey: "sk-secret-9999" }),
     })).json();
     assert.equal(cfgRes.config.location, "Ironforge Bank");
+    assert.equal(cfgRes.config.preset, "cf-gemma4");
+    assert.equal(cfgRes.config.model, "@cf/google/gemma-4-26b-a4b-it");
     assert.equal(cfgRes.config.apiKeyMasked, "****9999");
     assert.ok(!JSON.stringify(cfgRes).includes("sk-secret-9999")); // never leaks full key!
+
+    // Switching to deepseek preset must NOT reuse the cloudflare token
+    const dsRes = await (await fetch(`${base}/api/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preset: "deepseek", apiKey: "ds-key-7777" }),
+    })).json();
+    assert.equal(dsRes.config.provider, "deepseek");
+    assert.equal(dsRes.config.apiKeyMasked, "****7777");
+    // Switching back to cloudflare preserves its separate token
+    const cfBack = await (await fetch(`${base}/api/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preset: "cf-llama-fast" }),
+    })).json();
+    assert.equal(cfBack.config.provider, "cloudflare");
+    assert.equal(cfBack.config.apiKeyMasked, "****9999");
 
     const testRes = await (await fetch(`${base}/api/test-whisper`, {
       method: "POST",

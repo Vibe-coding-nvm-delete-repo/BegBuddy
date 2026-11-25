@@ -1,6 +1,29 @@
-// BegBuddy Copilot — DeepSeek (OpenAI-compatible) reply generator + instant intent fallback
+// BegBuddy Copilot — Cloudflare Workers AI & DeepSeek (OpenAI-compatible) reply generator + instant fallback
 
 import { sanitizeWhisperReply, shortName } from "./parser.mjs";
+
+export const MODEL_PRESETS = {
+  "cf-llama-fast": {
+    label: "Cloudflare: Llama 3.1 8B Fast (~5,900 free/day)",
+    provider: "cloudflare",
+    model: "@cf/meta/llama-3.1-8b-instruct-fp8-fast",
+  },
+  "cf-gemma4": {
+    label: "Cloudflare: Gemma 4 26B (~4,000 free/day)",
+    provider: "cloudflare",
+    model: "@cf/google/gemma-4-26b-a4b-it",
+  },
+  "cf-granite-micro": {
+    label: "Cloudflare: Granite 4 Micro (~17,700 free/day)",
+    provider: "cloudflare",
+    model: "@cf/ibm-granite/granite-4.0-h-micro",
+  },
+  "deepseek": {
+    label: "DeepSeek Chat",
+    provider: "deepseek",
+    model: "deepseek-chat",
+  },
+};
 
 const DECLINE_RE = /\b(no\b|nope|nah|fuck|fck|stfu|scam|beggar|get a job|grind|earn it|blocked|ignored|reported|broke|poor myself|cant|can't|sorry no)\b/i;
 const WHERE_RE   = /\b(where|location|wher|u at|you at|meet|come to|at ah|at bank|stormwind|ironforge|orgrimmar|sw|if|org)\b/i;
@@ -67,21 +90,68 @@ export function buildMessages(sender, history, config) {
   return msgs;
 }
 
-export async function generateReply({ sender, text, history, config, fetchImpl = fetch }) {
+export async function resolveCloudflareAccountId(apiKey, fetchImpl = fetch) {
+  const res = await fetchImpl("https://api.cloudflare.com/client/v4/accounts?per_page=5", {
+    method: "GET",
+    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !Array.isArray(data?.result) || !data.result[0]?.id) {
+    return null;
+  }
+  return String(data.result[0].id);
+}
+
+export async function generateReply({ sender, text, history, config, fetchImpl = fetch, onAccountResolved = null }) {
   const intent = detectIntent(text);
-  const apiKey = (config.apiKey || process.env.DEEPSEEK_API_KEY || "").trim();
+  const preset = MODEL_PRESETS[config.preset] || MODEL_PRESETS["cf-llama-fast"];
+  const provider = config.provider || preset.provider || "cloudflare";
+  const model = config.model || preset.model;
+
+  const providerKey = (config.apiKeys && typeof config.apiKeys === "object" ? config.apiKeys[provider] : "") || "";
+  const legacyKey = (!config.apiKeys && config.apiKey) ? config.apiKey : "";
+  const apiKey = (
+    providerKey ||
+    legacyKey ||
+    (provider === "cloudflare" ? process.env.CLOUDFLARE_API_TOKEN : process.env.DEEPSEEK_API_KEY) ||
+    ""
+  ).trim();
+
   if (!apiKey) {
     const fb = fallbackReply(sender, text, config);
-    return { ...fb, error: "No DeepSeek API key set — using smart fallback." };
+    const hint = provider === "cloudflare"
+      ? "No Cloudflare Workers AI token set — paste one in the HUD (free 10k neurons/day)."
+      : "No DeepSeek API key set — paste one in the HUD.";
+    return { ...fb, error: hint };
   }
 
-  const baseUrl = (config.baseUrl || "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = config.model || "deepseek-chat";
+  let endpoint;
+  if (provider === "cloudflare") {
+    let accountId = (config.cfAccountId || process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+    if (!accountId) {
+      try {
+        accountId = await resolveCloudflareAccountId(apiKey, fetchImpl);
+        if (accountId && typeof onAccountResolved === "function") onAccountResolved(accountId);
+      } catch { /* handled below */ }
+    }
+    if (!accountId) {
+      const fb = fallbackReply(sender, text, config);
+      return {
+        ...fb,
+        error: "Could not resolve Cloudflare Account ID. Create a 'Workers AI' token in Cloudflare Dashboard -> API Tokens (or set Account ID).",
+      };
+    }
+    endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/v1/chat/completions`;
+  } else {
+    const baseUrl = (config.baseUrl || "https://api.deepseek.com").replace(/\/+$/, "");
+    endpoint = `${baseUrl}/chat/completions`;
+  }
+
   const messages = buildMessages(sender, history, config);
   const t0 = Date.now();
 
   try {
-    const res = await fetchImpl(`${baseUrl}/chat/completions`, {
+    const res = await fetchImpl(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -97,23 +167,26 @@ export async function generateReply({ sender, text, history, config, fetchImpl =
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const msg = data?.error?.message || `HTTP ${res.status}`;
+      const msg = data?.error?.message || data?.errors?.[0]?.message || `HTTP ${res.status}`;
       const fb = fallbackReply(sender, text, config);
-      return { ...fb, latencyMs: Date.now() - t0, error: `DeepSeek error (${res.status}): ${msg}` };
+      const extra = provider === "cloudflare" && (res.status === 401 || res.status === 403)
+        ? " — create a 'Workers AI' token in Cloudflare Dashboard -> API Tokens"
+        : "";
+      return { ...fb, latencyMs: Date.now() - t0, error: `${provider} error (${res.status}): ${msg}${extra}` };
     }
 
-    const raw = data?.choices?.[0]?.message?.content || "";
+    const raw = data?.choices?.[0]?.message?.content || data?.result?.response || "";
     const reply = sanitizeWhisperReply(raw, 240, sender);
     if (!reply) {
       const fb = fallbackReply(sender, text, config);
-      return { ...fb, latencyMs: Date.now() - t0, error: "DeepSeek returned empty text — using fallback." };
+      return { ...fb, latencyMs: Date.now() - t0, error: `${provider} returned empty text — using fallback.` };
     }
 
     return {
       reply,
       intent,
       skip: intent === "decline",
-      source: model,
+      source: model.replace(/^@cf\/[^/]+\//, ""),
       latencyMs: Date.now() - t0,
       error: null,
     };

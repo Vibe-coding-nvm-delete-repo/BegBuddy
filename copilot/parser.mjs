@@ -61,6 +61,9 @@ function escapeRegex(s) {
  */
 export function sanitizeWhisperReply(raw, maxBytes = 240, sender = "") {
   let s = String(raw || "")
+    // Strip closed or truncated <think>...</think> blocks emitted by thinking-capable models
+    .replace(/<think>[\s\S]*?<\/think>/gi, " ")
+    .replace(/<think>[\s\S]*$/gi, " ")
     .replace(/[\r\n]+/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
