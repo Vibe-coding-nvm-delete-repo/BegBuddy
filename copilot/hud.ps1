@@ -9,11 +9,12 @@ $baseUrl = "http://127.0.0.1:$Port"
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="BegBuddy Copilot" Width="420" Height="530"
+        Title="BegBuddy Copilot" Width="430" Height="590"
         Topmost="True" WindowStartupLocation="Manual" Left="40" Top="40"
         Background="#111216" Foreground="#E6E6EB" ResizeMode="CanResizeWithGrip">
   <Grid Margin="10">
     <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
@@ -63,22 +64,35 @@ $baseUrl = "http://127.0.0.1:$Port"
         <ColumnDefinition Width="*"/>
         <ColumnDefinition Width="56"/>
       </Grid.ColumnDefinitions>
+      <TextBlock Text="Prompt:" Foreground="#9A9CA8" VerticalAlignment="Top" Margin="0,4,0,0" FontSize="12"/>
+      <TextBox x:Name="PromptBox" Grid.Column="1" Height="46" TextWrapping="Wrap" AcceptsReturn="False"
+               VerticalScrollBarVisibility="Auto" Background="#1A1B22" Foreground="#D8DAE4" BorderBrush="#2E313D" Padding="4,2" FontSize="11"/>
+      <Button x:Name="BtnSavePrompt" Grid.Column="2" Content="Save" Height="24" VerticalAlignment="Top" Margin="4,0,0,0"
+              Background="#1B4D2A" Foreground="#FFFFFF" BorderBrush="#35A858" FontSize="11" FontWeight="SemiBold"/>
+    </Grid>
+
+    <Grid Grid.Row="4" Margin="0,0,0,6">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="62"/>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="56"/>
+      </Grid.ColumnDefinitions>
       <TextBlock Text="API Key:" Foreground="#9A9CA8" VerticalAlignment="Center" FontSize="12"/>
       <PasswordBox x:Name="KeyBox" Grid.Column="1" Background="#1A1B22" Foreground="#FFFFFF" BorderBrush="#2E313D" Padding="4,2" FontSize="12"/>
       <Button x:Name="BtnSaveKey" Grid.Column="2" Content="Set Key" Margin="4,0,0,0" Background="#22242E" Foreground="#FFD100" BorderBrush="#5A4B20" FontSize="11" FontWeight="SemiBold"/>
     </Grid>
 
-    <DockPanel Grid.Row="4" Margin="0,0,0,8">
+    <DockPanel Grid.Row="5" Margin="0,0,0,8">
       <CheckBox x:Name="ChkAutoCopy" Content="Auto-copy newest reply (R -> Ctrl+V -> Enter)" IsChecked="True"
                 Foreground="#B8BAC6" FontSize="11.5" VerticalAlignment="Center"/>
       <TextBlock x:Name="KeyStatus" Text="" Foreground="#888A96" FontSize="11" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
     </DockPanel>
 
-    <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto">
+    <ScrollViewer Grid.Row="6" VerticalScrollBarVisibility="Auto">
       <StackPanel x:Name="DraftsPanel"/>
     </ScrollViewer>
 
-    <TextBlock Grid.Row="6" Margin="0,6,0,0" FontSize="11" Foreground="#7A7D8A" TextWrapping="Wrap"
+    <TextBlock Grid.Row="7" Margin="0,6,0,0" FontSize="11" Foreground="#7A7D8A" TextWrapping="Wrap"
                Text="In WoW: click AI Copilot in BegBuddy once. When a whisper arrives, just press R -> Ctrl+V -> Enter."/>
   </Grid>
 </Window>
@@ -87,17 +101,19 @@ $baseUrl = "http://127.0.0.1:$Port"
 $reader = New-Object System.Xml.XmlNodeReader $xaml
 $win = [Windows.Markup.XamlReader]::Load($reader)
 
-$StatusBadge = $win.FindName("StatusBadge")
-$StatusText  = $win.FindName("StatusText")
-$ModelBox    = $win.FindName("ModelBox")
-$LocBox      = $win.FindName("LocBox")
-$KeyBox      = $win.FindName("KeyBox")
-$BtnSaveLoc  = $win.FindName("BtnSaveLoc")
-$BtnSaveKey  = $win.FindName("BtnSaveKey")
-$BtnTest     = $win.FindName("BtnTest")
-$ChkAutoCopy = $win.FindName("ChkAutoCopy")
-$KeyStatus   = $win.FindName("KeyStatus")
-$DraftsPanel = $win.FindName("DraftsPanel")
+$StatusBadge   = $win.FindName("StatusBadge")
+$StatusText    = $win.FindName("StatusText")
+$ModelBox      = $win.FindName("ModelBox")
+$LocBox        = $win.FindName("LocBox")
+$PromptBox     = $win.FindName("PromptBox")
+$KeyBox        = $win.FindName("KeyBox")
+$BtnSaveLoc    = $win.FindName("BtnSaveLoc")
+$BtnSavePrompt = $win.FindName("BtnSavePrompt")
+$BtnSaveKey    = $win.FindName("BtnSaveKey")
+$BtnTest       = $win.FindName("BtnTest")
+$ChkAutoCopy   = $win.FindName("ChkAutoCopy")
+$KeyStatus     = $win.FindName("KeyStatus")
+$DraftsPanel   = $win.FindName("DraftsPanel")
 
 function Post-Api($path, $obj) {
   $json = ($obj | ConvertTo-Json -Depth 4 -Compress)
@@ -120,6 +136,7 @@ function Render-State($s) {
   $KeyStatus.Text = if ($s.config.apiKeySet) { "Key: $($s.config.apiKeyMasked)" } else { "No API key" }
   if (-not $script:loadedCfg) {
     $LocBox.Text = [string]$s.config.location
+    $PromptBox.Text = [string]$s.config.persona
     $ChkAutoCopy.IsChecked = [bool]$s.config.autoCopy
     $wantPreset = if ($s.config.preset) { [string]$s.config.preset } else { "cf-llama-fast" }
     for ($i = 0; $i -lt $ModelBox.Items.Count; $i++) {
@@ -245,6 +262,9 @@ $ModelBox.Add_SelectionChanged({
 })
 $BtnSaveLoc.Add_Click({
   try { Post-Api "/api/config" @{ location = $LocBox.Text } | Out-Null } catch {}
+})
+$BtnSavePrompt.Add_Click({
+  try { Post-Api "/api/config" @{ persona = $PromptBox.Text } | Out-Null } catch {}
 })
 $BtnSaveKey.Add_Click({
   $k = $KeyBox.Password

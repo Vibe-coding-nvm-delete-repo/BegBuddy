@@ -93,6 +93,17 @@ local DEFAULTS = {
     statsMinSample = 30,     -- asks a row needs before its rate is trusted
     statsView = "template",  -- the Stats tab's breakdown
     statsCohort = "level_class", -- the Cohorts subtab breakdown
+    -- In-addon 1-click Smart Reply & Post-Trade Close-Out settings
+    smartReplyPopup = true,
+    smartReplyLocation = "right outside the Stormwind AH steps",
+    postTradePopup = true,
+    postTradeThankYou = "tysm {name}!! appreciate the {gift} so much, gl out there!",
+    postTradeBigThankYou = "WHOA tysm {name}!! {gift} is insane, youre literally the best!!",
+    postTradeBigThreshold = 10000, -- copper (1g): trades >= this use Big Thank-You
+    postTradeLeaveGroup = true,    -- 1-click Thanks + Leave button also leaves party
+    postTradeAutoLeave = false,    -- optional: auto-leave 2-man party with trader on trade complete
+    postTradeAddFriend = false,    -- optional: 1-click close-out adds big-tip donors to Friends
+    postTradeAutoHideSec = 25,     -- auto-hide floating bars after N seconds (0 = stay until closed)
   },
   cities = {},     -- zones the player added by hand (plus the old seeded capitals)
   zoneSel = nil,   -- [zone name] = true for every zone picked for scanning

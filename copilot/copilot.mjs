@@ -374,6 +374,9 @@ const HTML_UI = `<!doctype html><html><head><meta charset="utf-8"><title>BegBudd
   <input id="key" type="password" style="width:150px" placeholder="Cloudflare / DeepSeek token">
   <button onclick="save()">Save</button>
 </div>
+<div class="bar">
+  <textarea id="persona" rows="2" style="width:100%;background:#1a1b22;color:#e6e6eb;border:1px solid #2e313d;border-radius:4px;padding:4px 7px;font:11.5px/1.35 -apple-system,Segoe UI,sans-serif;resize:vertical" placeholder="AI reply prompt / persona guidance..."></textarea>
+</div>
 <div id="list"></div>
 <script>
 let loaded=false;
@@ -384,7 +387,7 @@ async function load(){
   const st=document.getElementById('st');
   st.textContent=s.status==='watching'?'Watching WoWChatLog.txt':'Type /chatlog in WoW';
   st.className='pill'+(s.status==='watching'?'':' wait');
-  if(!loaded){document.getElementById('loc').value=s.config.location||'';document.getElementById('preset').value=s.config.preset||'cf-llama-fast';loaded=true;}
+  if(!loaded){document.getElementById('loc').value=s.config.location||'';document.getElementById('preset').value=s.config.preset||'cf-llama-fast';document.getElementById('persona').value=s.config.persona||'';loaded=true;}
   latestDrafts={};
   for(const d of s.drafts){latestDrafts[d.id]=d.reply;}
   document.getElementById('list').innerHTML=s.drafts.map(d=>\`<div class="card">
@@ -396,7 +399,7 @@ async function load(){
     <button class="sec" onclick="regen(\${Number(d.id)})">Retry</button></div></div>\`).join('') || '<div class="inc">Waiting for incoming whispers... (Click AI Copilot in BegBuddy or type /chatlog once in WoW)</div>';
 }
 async function save(){
-  const body={location:document.getElementById('loc').value,preset:document.getElementById('preset').value};
+  const body={location:document.getElementById('loc').value,preset:document.getElementById('preset').value,persona:document.getElementById('persona').value};
   const k=document.getElementById('key').value.trim(); if(k) body.apiKey=k;
   await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   document.getElementById('key').value=''; load();

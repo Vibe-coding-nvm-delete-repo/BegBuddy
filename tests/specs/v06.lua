@@ -303,5 +303,80 @@ NS.RefreshUINow()
 eq("ToggleCopilotChatLog enables Blizzard LoggingChat(true)", chatLogFlag, true)
 has("AI Copilot button shows AI Log: ON when enabled", NS.UI.frame.copilotBtn.text:GetText(), "AI Log: ON")
 
+-- 11. In-Addon 1-Click Smart Reply Mini-Bar & Customizable Post-Trade Close-Out --
+Reset()
+local sentWhispers, invitedNames, leftPartyCount, addedFriends = {}, {}, 0, {}
+SendChatMessage = function(msg, ch, _, tgt) sentWhispers[#sentWhispers + 1] = { msg = msg, ch = ch, tgt = tgt } end
+InviteUnit = function(n) invitedNames[#invitedNames + 1] = n end
+LeaveParty = function() leftPartyCount = leftPartyCount + 1 end
+AddFriend = function(n) addedFriends[#addedFriends + 1] = n end
+IsInGroup = function() return true end
+IsInRaid = function() return false end
+GetNumGroupMembers = function() return 2 end
+UnitInParty = function(n) return n == "WhaleDonor" end
+
+-- A. Smart Reply intent detection & 1-click bar on incoming whisper
+eq("DetectWhisperIntent location", NS.DetectWhisperIntent("haha sure where are you at?"), "location")
+eq("DetectWhisperIntent invite", NS.DetectWhisperIntent("inv me plz"), "invite")
+eq("DetectWhisperIntent decline", NS.DetectWhisperIntent("no get a job"), "decline")
+eq("DetectWhisperIntent amount", NS.DetectWhisperIntent("how much do u need?"), "amount")
+eq("DetectWhisperIntent trade", NS.DetectWhisperIntent("omw to stormwind"), "trade")
+
+local sr = NS.EnsureContact("Shadow Dru", { level = 55, class = "Druid", classToken = "DRUID" })
+BegDB.settings.smartReplyPopup = true
+BegDB.settings.smartReplyLocation = "by Ironforge bank"
+NS.OnWhisperIn("sure where are you at?", "Shadow Dru")
+truthy("Smart Reply mini-bar pops on incoming whisper", NS.UI.smartReply and NS.UI.smartReply:IsShown())
+NS.UI.smartReply.b1:GetScript("OnClick")(NS.UI.smartReply.b1)
+eq("Smart Reply 1-click sends location whisper", #sentWhispers, 1)
+has("Smart Reply whisper includes custom location", sentWhispers[1].msg, "by Ironforge bank")
+eq("Smart Reply bar hides after clicking", NS.UI.smartReply:IsShown(), false)
+
+-- Decline 1-click marks contact declined
+NS.lastSendAt = nil
+NS.OnWhisperIn("no sorry im broke", "Shadow Dru")
+truthy("Smart Reply pops for decline", NS.UI.smartReply:IsShown())
+NS.UI.smartReply.b1:GetScript("OnClick")(NS.UI.smartReply.b1)
+eq("Decline 1-click moves contact to declined", sr.status, "declined")
+
+-- B. Post-Trade Close-Out toast: standard vs big-tip + 1-click Thanks + Leave + Friend
+NS.lastSendAt = nil
+ERR_TRADE_COMPLETE = "Trade complete."
+local whale = NS.EnsureContact("WhaleDonor", { level = 60, class = "Paladin", classToken = "PALADIN" })
+BegDB.settings.postTradePopup = true
+BegDB.settings.postTradeLeaveGroup = true
+BegDB.settings.postTradeAddFriend = true
+BegDB.settings.postTradeBigThreshold = 10000 -- 1g
+BegDB.settings.postTradeAutoLeave = false
+
+UnitName = function(u) return u == "NPC" and "WhaleDonor" or "Beggar" end
+GetTargetTradeMoney = function() return 20000 end -- 2g (>= 1g big tip!)
+GetTradeTargetItemInfo = function(i) if i == 1 then return "Runecloth Bag", nil, 1 end end
+GetTradeTargetItemLink = function(i) if i == 1 then return "[Runecloth Bag]" end end
+Fire("TRADE_SHOW")
+Fire("TRADE_ACCEPT_UPDATE", 1, 1)
+Fire("UI_INFO_MESSAGE", 0, ERR_TRADE_COMPLETE)
+
+truthy("Post-Trade Close-Out toast pops on completed trade", NS.UI.tradeToast and NS.UI.tradeToast:IsShown())
+has("Big tip uses postTradeBigThankYou template", NS.UI.tradeToast.data.thankText, "WHOA tysm WhaleDonor!!")
+has("Thank-you substitutes {gift} with gold and item", NS.UI.tradeToast.data.thankText, "Runecloth Bag")
+local beforeW = #sentWhispers
+NS.UI.tradeToast.primaryBtn:GetScript("OnClick")(NS.UI.tradeToast.primaryBtn)
+eq("1-click primary button sends thank-you whisper", #sentWhispers, beforeW + 1)
+eq("1-click primary button leaves party", leftPartyCount, 1)
+eq("1-click primary button adds big-tip donor to friends", addedFriends[1], "WhaleDonor")
+eq("Post-Trade toast hides after click", NS.UI.tradeToast:IsShown(), false)
+
+-- C. Auto-leave guard: leaves 2-man party with trader, NEVER leaves 5-man dungeon party
+BegDB.settings.postTradeAutoLeave = true
+leftPartyCount = 0
+GetNumGroupMembers = function() return 5 end
+Fire("TRADE_SHOW"); Fire("TRADE_ACCEPT_UPDATE", 1, 1); Fire("UI_INFO_MESSAGE", 0, ERR_TRADE_COMPLETE)
+eq("Auto-leave NEVER kicks you out of a 5-man dungeon party", leftPartyCount, 0)
+GetNumGroupMembers = function() return 2 end
+Fire("TRADE_SHOW"); Fire("TRADE_ACCEPT_UPDATE", 1, 1); Fire("UI_INFO_MESSAGE", 0, ERR_TRADE_COMPLETE)
+eq("Auto-leave leaves 2-man party with trader immediately", leftPartyCount, 1)
+
+
 
 

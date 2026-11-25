@@ -30,10 +30,12 @@ UIList.lua
 UIMain.lua
 UIRefresh.lua
 UI.lua
+UIAlerts.lua
 Commands.lua
 Settings.lua
 SettingsWhisper.lua
 SettingsMail.lua
 SettingsScan.lua
 SettingsQuick.lua
+SettingsCloseout.lua
 SettingsData.lua

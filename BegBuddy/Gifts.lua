@@ -189,6 +189,15 @@ function ns.TradeCompleted()
 
   ns.PushHistory(c, "in", "[trade] " .. summary)
   ns.Print(string.format("|cffffd100%s traded you %s — marked Funded!|r", tostring(c.name), summary))
+  -- Optional: auto-leave a 2-person party containing only you and the trader (never touches dungeons/raids)
+  if BegDB and BegDB.settings and BegDB.settings.postTradeAutoLeave
+     and ns.IsTwoManPartyWith and ns.IsTwoManPartyWith(c)
+     and not (ns.inCombat or (InCombatLockdown and InCombatLockdown())) then
+    pcall(ns.LeaveGroup)
+  end
+  if ns.UI and ns.UI.ShowTradeToast then
+    ns.UI.ShowTradeToast(c, copper, units, summary)
+  end
   return true
 end
 

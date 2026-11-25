@@ -99,6 +99,7 @@ local PAGES = {
   { key = "mail", title = "Mail", icon = "Interface/Icons/INV_Letter_02", file = "Mail" },
   { key = "scan", title = "Scan", icon = "Interface/Icons/INV_Misc_Spyglass_02", file = "Scan" },
   { key = "quick", title = "Quick messages", icon = "Interface/Icons/INV_Misc_Note_01", file = "Quick" },
+  { key = "closeout", title = "Close-out & Smart Reply", icon = "Interface/Icons/INV_Misc_Coin_02", file = "Closeout" },
   { key = "data", title = "Zones & data", icon = "Interface/Icons/INV_Misc_Map_01", file = "Data" },
 }
 
