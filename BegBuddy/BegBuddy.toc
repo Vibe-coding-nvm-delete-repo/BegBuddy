@@ -1,0 +1,39 @@
+## Interface: 11509, 16001
+## Title: BegBuddy
+## Notes: Assisted /who scanning and outreach CRM. Never auto-sends: you press Enter.
+## Version: 0.5.2
+## SavedVariables: BegDB
+## Category: Zip
+## IconTexture: Interface\Icons\INV_Misc_Coin_01
+
+ZipUI\ZipUI.xml
+Core.lua
+Classes.lua
+Contacts.lua
+Templates.lua
+Export.lua
+Scan.lua
+WhoResults.lua
+Comms.lua
+Quick.lua
+Guard.lua
+Mail.lua
+Gifts.lua
+Stats.lua
+Api.lua
+UIWidgets.lua
+UIQuick.lua
+UIZones.lua
+UIClasses.lua
+UIStats.lua
+UIList.lua
+UIMain.lua
+UIRefresh.lua
+UI.lua
+Commands.lua
+Settings.lua
+SettingsWhisper.lua
+SettingsMail.lua
+SettingsScan.lua
+SettingsQuick.lua
+SettingsData.lua

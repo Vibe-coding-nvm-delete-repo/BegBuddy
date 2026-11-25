@@ -1,0 +1,16 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+  <Script file="Core.lua"/>
+  <Script file="Health.lua"/>
+  <Script file="Locales.lua"/>
+  <Script file="LocalesMore.lua"/>
+  <Script file="Widgets.lua"/>
+  <Script file="Specs.lua"/>
+  <Script file="Window.lua"/>
+  <Script file="Suites.lua"/>
+  <Script file="Hub.lua"/>
+  <Script file="Pages.lua"/>
+  <Script file="Profiles.lua"/>
+  <Script file="Share.lua"/>
+  <Script file="Commands.lua"/>
+  <Script file="Launcher.lua"/>
+</Ui>
