@@ -24,6 +24,7 @@ ns.COMMAND_HELP = {
   pause = "stop sending",
   resume = "allow sending again",
   leave = "leave your party or raid",
+  copilot = "toggle WoW /chatlog for BegBuddy AI Copilot",
   save = "ask the client to write SavedVariables",
   clear = "move everyone in Queued to Archived",
   wipe = "delete all data, like Clear all (asks for confirmation)",
@@ -77,6 +78,7 @@ function C.resume()
 end
 
 function C.leave() ns.LeaveGroup() end
+function C.copilot() ns.ToggleCopilotChatLog() end
 
 function C.export()
   local text = ns.BuildExport()

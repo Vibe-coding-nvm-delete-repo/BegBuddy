@@ -219,6 +219,17 @@ local function PaintGphBadge(f)
 end
 ns.PaintGphBadge = PaintGphBadge
 
+local function PaintCopilotButton(f)
+  if not f.copilotBtn then return end
+  local on = ns.IsChatLogOn and ns.IsChatLogOn() or false
+  f.copilotBtn.activeTab = on
+  f.copilotBtn:SetLabel(on and "|cff7fe07fAI Log: ON|r" or "|cff5cc8ffAI Copilot|r")
+  if f.copilotBtn.SetBackdropColor then
+    if on then f.copilotBtn:SetBackdropColor(0.14, 0.34, 0.20, 1)
+    else f.copilotBtn:SetBackdropColor(0.12, 0.12, 0.14, 0.95) end
+  end
+end
+
 local function PaintLevelInputs(f)
   if f.minLvlBox and not (f.minLvlBox.HasFocus and f.minLvlBox:HasFocus()) then
     local want = tostring(BegDB.settings.minLevel or 1)
@@ -434,6 +445,7 @@ function ns.RefreshUINow()
   if not f or not f:IsShown() then return end
 
   PaintGphBadge(f)
+  PaintCopilotButton(f)
   PaintZones(f)
   PaintLevelInputs(f)
   PaintClass(f)

@@ -22,7 +22,7 @@ local function MainHeader(f)
   Style(gphBtn, 0.20, 0.15, 0.03, 0.96)
   if gphBtn.SetBackdropBorderColor then gphBtn:SetBackdropBorderColor(0.85, 0.68, 0.16, 1) end
   gphBtn:SetHeight(24)
-  gphBtn:SetWidth(215)
+  gphBtn:SetWidth(190)
   gphBtn:SetPoint("LEFT", f.title, "RIGHT", 14, 0)
   gphBtn.text = gphBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   gphBtn.text:SetPoint("CENTER")
@@ -63,7 +63,7 @@ local function MainHeader(f)
   local settingsBtn = f.settingsBtn
 
   -- Top right, next to Settings: out of a party or raid in one click, no menu.
-  local leaveBtn = MakeButton(f, "Leave group", 92)
+  local leaveBtn = MakeButton(f, "Leave group", 84)
   leaveBtn:SetPoint("RIGHT", settingsBtn, "LEFT", -6, 0)
   leaveBtn:SetScript("OnClick", function() ns.LeaveGroup() end)
   leaveBtn:SetScript("OnEnter", function(self)
@@ -76,10 +76,33 @@ local function MainHeader(f)
   leaveBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
   f.leaveBtn = leaveBtn
 
+  -- One-click toggle for WoW's /chatlog so the external BegBuddy Copilot HUD can draft AI replies.
+  local copilotBtn = MakeButton(f, "AI Copilot", 94)
+  copilotBtn:SetPoint("RIGHT", leaveBtn, "LEFT", -6, 0)
+  copilotBtn:SetScript("OnClick", function() ns.ToggleCopilotChatLog() end)
+  copilotBtn:SetScript("OnEnter", function(self)
+    if self.SetBackdropColor then self:SetBackdropColor(0.20, 0.20, 0.24, 1) end
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:SetText("BegBuddy AI Copilot (Chat Log)", 1, 0.82, 0)
+    GameTooltip:AddLine("WoW addons can't call AI APIs directly, so AI replies run in the companion Windows HUD (BegBuddy Copilot.bat).", 0.9, 0.9, 0.9, true)
+    GameTooltip:AddLine("1. Click this button to turn WoW's /chatlog ON.", 0.5, 0.95, 0.5, true)
+    GameTooltip:AddLine("2. Open C:\\dev\\BegBuddy\\BegBuddy Copilot.bat.", 0.5, 0.95, 0.5, true)
+    GameTooltip:AddLine("3. When a whisper arrives, press R -> Ctrl+V -> Enter.", 0.5, 0.95, 0.5, true)
+    GameTooltip:Show()
+  end)
+  copilotBtn:SetScript("OnLeave", function(self)
+    if self.SetBackdropColor then
+      if self.activeTab then self:SetBackdropColor(0.14, 0.34, 0.20, 1)
+      else self:SetBackdropColor(0.12, 0.12, 0.14, 0.95) end
+    end
+    GameTooltip:Hide()
+  end)
+  f.copilotBtn = copilotBtn
+
   -- Whisper or mail. Mail turns on by itself while a mailbox is open; this
   -- switches back to whispers there if you want.
-  local modeBtn = MakeButton(f, "", 166)
-  modeBtn:SetPoint("RIGHT", leaveBtn, "LEFT", -6, 0)
+  local modeBtn = MakeButton(f, "", 148)
+  modeBtn:SetPoint("RIGHT", copilotBtn, "LEFT", -6, 0)
   modeBtn:SetScript("OnClick", function()
     if not ns.mail.open then
       ns.Print("Mail mode turns on when you open a mailbox.")

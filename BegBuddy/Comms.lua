@@ -410,6 +410,34 @@ function ns.AddFriendContact(contact)
   return true
 end
 
+-- Toggles WoW's built-in chat log (Logs\WoWChatLog.txt) for BegBuddy Copilot.
+-- Pure Blizzard API (same call as /chatlog); never touches protected actions.
+function ns.IsChatLogOn()
+  if type(_G.LoggingChat) ~= "function" then return false end
+  local ok, on = pcall(_G.LoggingChat)
+  return ok and (on == true or on == 1)
+end
+
+function ns.ToggleCopilotChatLog()
+  if type(_G.LoggingChat) ~= "function" then
+    ns.Print("Type /chatlog in chat to enable WoWChatLog.txt for BegBuddy Copilot.")
+    return false
+  end
+  local want = not ns.IsChatLogOn()
+  local ok = pcall(_G.LoggingChat, want)
+  if not ok then
+    ns.Print("Type /chatlog in chat to toggle logging for BegBuddy Copilot.")
+    return false
+  end
+  if want then
+    ns.Print("|cff7fe07fAI Copilot chat log ON!|r Open BegBuddy Copilot on Windows (C:\\dev\\BegBuddy\\BegBuddy Copilot.bat). When someone whispers you, just press R -> Ctrl+V -> Enter.")
+  else
+    ns.Print("AI Copilot chat log OFF.")
+  end
+  if ns.RefreshUI then ns.RefreshUI() end
+  return true
+end
+
 ----------------------------------------------------------------------
 -- Incoming / outgoing whispers
 ----------------------------------------------------------------------

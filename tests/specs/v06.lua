@@ -292,4 +292,16 @@ NS.SetStatus(dC, NS.STATUS.FUNDED)
 eq("direct-to-Funded credits template.replied to match Stats.lua", NS.ActiveTemplate().replied, 1)
 eq("direct-to-Funded credits template.funded", NS.ActiveTemplate().funded, 1)
 
+-- E. In-addon AI Copilot /chatlog toggle button
+local chatLogFlag = false
+LoggingChat = function(v) if v ~= nil then chatLogFlag = v and true or false end; return chatLogFlag end
+NS.UI.Open()
+NS.RefreshUINow()
+has("AI Copilot button defaults to AI Copilot when chatlog is off", NS.UI.frame.copilotBtn.text:GetText(), "AI Copilot")
+NS.ToggleCopilotChatLog()
+NS.RefreshUINow()
+eq("ToggleCopilotChatLog enables Blizzard LoggingChat(true)", chatLogFlag, true)
+has("AI Copilot button shows AI Log: ON when enabled", NS.UI.frame.copilotBtn.text:GetText(), "AI Log: ON")
+
+
 
