@@ -15,22 +15,35 @@ person. Nothing is recorded as "contacted" until the client confirms the whisper
 
 ## Install
 
-Source lives in `C:\Users\chris\dev\repos\BegBuddy\BegBuddy`. Copy that folder into each client's AddOns folder:
+Clone or download this repository and run `.\Install-BegBuddy.ps1`, or copy the `BegBuddy/` folder into your WoW AddOns folder:
 
 | Game | AddOns folder |
 |---|---|
-| Hardcore (Classic Era) | `World of Warcraft\_classic_era_\Interface\AddOns\BegBuddy\` |
-| Forever beta | `World of Warcraft\_classic_beta_\Interface\AddOns\BegBuddy\` |
+| Classic Era / Hardcore | `World of Warcraft\_classic_era_\Interface\AddOns\BegBuddy\` |
+| WoW Forever | `World of Warcraft\_forever_\Interface\AddOns\BegBuddy\` |
+| Classic Beta | `World of Warcraft\_classic_beta_\Interface\AddOns\BegBuddy\` |
 
 ```powershell
-$src = "C:\Users\chris\dev\repos\BegBuddy\BegBuddy"
-foreach ($flavor in "_classic_era_", "_classic_beta_") {
-  Copy-Item -Recurse -Force $src "C:\Program Files (x86)\World of Warcraft\$flavor\Interface\AddOns\"
-}
+.\Install-BegBuddy.ps1
 ```
 
-Restart the client, or `/reload` if it was already running. Each client keeps its own saved data,
-so Hardcore starts with an empty contact list.
+Restart the client, or `/reload` if it was already running.
+
+### Running Tests
+
+```powershell
+cd tests
+npm ci
+node run.js
+```
+
+### Template Variables
+
+Whisper and Mail templates support 16 variables (with automatic whitespace cleanup when an optional field like `{guild}` is empty):
+
+- **Contact:** `{name}`, `{level}`, `{class}`, `{race}`, `{zone}`, `{guild}`, `{realm}`
+- **Player (self):** `{me}` / `{myname}`, `{mylevel}`, `{myclass}`, `{myrace}`, `{myzone}`, `{myguild}`
+- **Context:** `{greeting}` (Good morning / afternoon / evening), `{day}`, `{ask_num}`
 
 ---
 
@@ -340,45 +353,4 @@ shifting those APIs cannot break the window.
 
 ## Status
 
-0.3.0 adds mail mode with its own templates (Settings > Mail), a multi-select zone picker for
-every open-world zone that saves your ticks and rotates the scan through them, and more icons and
-colour: status colours on the tabs, counters and detail pane, and icons on the scan buttons.
-
-0.2.0 fixes: the contact list crashing as soon as a name was queued, level range changes not
-restarting the scan, and a scan after a timeout being thrown away. Adds Hardcore support.
-
-Window fixes in the same release:
-
-- The city and template dropdowns scroll with the mouse wheel past 12 entries and say how many
-  there are. Before, anything after the 12th city could not be picked.
-- The contact list shows "1-17 of 30, scroll for more" when it has more names than fit.
-- **Change levels** on the scan panel opens Settings straight on the Scan page.
-- The number fields take whole numbers only, never go below 1 (0 allowed for the reply gap and
-  re-whisper wait), refuse a Min above Max or a Max below Min with a message saying which to change
-  first, and only print when a value actually changed.
-- Enter or Escape in the message box leaves it. A pasted line break becomes a space, because a
-  whisper is one line.
-- The history pane and the export window keep long text inside their borders and scroll it.
-- The History window updates while it is open, when a new whisper arrives.
-- Two players with the same name on different realms stay separate contacts (a second Bob
-  used to be merged into the first). Name lookups use an index, so scans and whispers stay
-  fast with thousands of contacts.
-- **Auto: send next** (bottom right) whispers the top person in Queued, in the list's sort
-  order, one whisper per click. Click it as fast as you like: clicks inside the send gap do
-  nothing, and nobody can be sent to twice, even before the game confirms the first send.
-  People a check found offline are skipped. The number on it is how many are left.
-- Each sendable name has **check** and **send** buttons. **check** runs one `/who` for that
-  name: offline people are archived on the spot (with Auto-archive offline on), online people
-  show `online`. Click check then send straight away; you do not have to wait for the answer.
-  A send to someone offline is also archived instantly, and no longer holds up the next send.
-- The list has **Name** and **Lvl** column headers. Click one to sort by it, again to reverse,
-  a third time for the order people were found. The choice is saved.
-- Every contact action has a small icon. Replied and Funded contacts get Invite and Add friend.
-- One-click send (Settings, Scan page, off by default since 0.4.1): the row **send** button and **Send whisper**
-  send the message in one click instead of loading it into chat for Enter.
-- Clicks redraw the window in the same frame, buttons visibly press, and closing out or
-  whispering the selected contact moves the selection to the next name in that tab.
-
-Checked by clicking every button in every window against a stubbed game API, in the order a player
-would, plus the scan, whisper, reply, offline archive, settings and slash command scenarios.
-**Not yet run inside a live client.**
+`0.6.0` is live on WoW Classic Era, Hardcore (`11509`), and WoW Forever (`16001`). See [CHANGELOG.md](CHANGELOG.md) for the full release history.

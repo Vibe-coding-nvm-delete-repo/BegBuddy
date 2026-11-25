@@ -98,9 +98,12 @@ local function editorRows(c)
   c.body:SetScript("OnEditFocusGained", function(self) lastBox = self end)
   local function insert(tok) lastBox:SetFocus(); lastBox:Insert(tok) end
   S.Label(p, "Insert:", 0, 90, WHITE)
-  S.Button(p, "{name}", 62, 50, 86, function() insert("{name}") end)
-  S.Button(p, "{level}", 62, 118, 86, function() insert("{level}") end)
-  S.Label(p, "goes in the last box you clicked", 190, 90)
+  local x = 48
+  for _, tok in ipairs({ "{name}", "{level}", "{class}", "{zone}", "{guild}", "{race}", "{greeting}", "{me}" }) do
+    local w = math.max(46, #tok * 6 + 10)
+    S.Button(p, tok, w, x, 86, function() insert(tok) end)
+    x = x + w + 4
+  end
   S.Label(p, "Rename to:", 0, 124, WHITE)
   c.nameBox = S.Input(p, 150, 70, 120, 24)
   c.nameBox:SetScript("OnEnterPressed", function(self)
@@ -122,10 +125,10 @@ local function refreshMail(c)
   local tpl = { subject = c.subj:GetText() or "", body = c.body:GetText() or "" }
   countColor(c.subjCount, #tpl.subject, ns.MAIL_SUBJECT_MAX)
   countColor(c.bodyCount, #tpl.body, ns.MAIL_BODY_MAX)
-  local name, level, real = ns.SampleIdentity()
+  local name, level, real, sample = ns.SampleIdentity()
   c.prevLbl:SetText(real and ("Preview - exactly what " .. name .. " will get:")
-    or "Preview - scan someone and this uses their real name:")
-  local subject, body = ns.RenderMail({ name = name, level = level }, tpl)
+    or "Preview - scan someone and this uses their real contact:")
+  local subject, body = ns.RenderMail(sample or { name = name, level = level }, tpl)
   if subject == "" then subject = "|cffff6060(no subject - mail will not send)|r" else subject = Sanitize(subject) end
   c.prevText:SetText("|cffffd100" .. subject .. "|r\n" .. Sanitize(body))
 end

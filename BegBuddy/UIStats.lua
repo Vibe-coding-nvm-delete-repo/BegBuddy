@@ -9,18 +9,21 @@ local W = ns.W
 local BACKDROP, ACCENT, DIM, Style, MakeButton = W.BACKDROP, W.ACCENT, W.DIM, W.Style, W.MakeButton
 local Sanitize = W.Sanitize
 
-local ROWS, ROW_H, TOP = 11, 18, 124
+local ROWS, ROWS_COHORT, ROW_H = 11, 10, 18
+local TOP_STD, TOP_COHORT = 124, 150
 local GOLD_HEX, DIM_HEX = "|cffffd100", "|cff6f6f76"
 
--- key, heading, x, width, left aligned
+-- key, heading, x, width, left aligned (fits cleanly inside 836px pane)
 local COLS = {
-  { "label", "Name", 10, 230, true },
-  { "sent", "Asked", 244, 64 },
-  { "replied", "Replied", 312, 64 },
-  { "funded", "Funded", 380, 64 },
-  { "rate", "Success", 448, 100 },
-  { "gold", "Gold", 552, 110 },
-  { "goldPerAsk", "Gold / ask", 666, 100 },
+  { "label",        "Name",         10, 210, true },
+  { "sent",         "Asked",       224,  52 },
+  { "replied",      "Replied",     280,  56 },
+  { "funded",       "Funded",      340,  54 },
+  { "rate",         "Success",     398,  88 },
+  { "gold",         "Gold",        490,  90 },
+  { "goldPerReply", "Gold/reply",  584,  86 },
+  { "goldPerAsk",   "Gold/ask",    674,  82 },
+  { "items",        "Items",       760,  58 },
 }
 
 ----------------------------------------------------------------------
@@ -63,9 +66,12 @@ local function FunnelLines(st)
     "|cffd8d8dc", fn.found, "|cff5cc8ff", fn.asked, Pct(fn.asked, fn.found),
     "|cff7fe07f", fn.replied, Pct(fn.replied, fn.asked), GOLD_HEX, fn.funded, Pct(fn.funded, fn.replied))
   local avg = fn.funders > 0 and (fn.gold / fn.funders) or 0
-  local l2 = string.format("Success (%s): %s%d|r = %s of asked   Gold %s%s|r (avg %s each, %s per ask)   Items %d   Declined %d   Blocked %d   Reply in %s",
-    word, GOLD_HEX, fn.success, Pct(fn.success, fn.asked), GOLD_HEX, Money(fn.gold), Money(avg),
-    Money(fn.asked > 0 and fn.gold / fn.asked or 0), fn.items, fn.declined, fn.blocked, Span(st.medianReply))
+  local gph = ns.GoldPerHour and select(1, ns.GoldPerHour()) or 0
+  local gpr = fn.replied > 0 and (fn.gold / fn.replied) or 0
+  local l2 = string.format("Gold/hr %s%s|r   Gold %s%s|r (avg %s, %s/reply, %s/ask)   Items %d   Success (%s): %s%d|r (%s)   Reply in %s",
+    GOLD_HEX, Money(gph), GOLD_HEX, Money(fn.gold), Money(avg), Money(gpr),
+    Money(fn.asked > 0 and fn.gold / fn.asked or 0), fn.items, word, GOLD_HEX, fn.success,
+    Pct(fn.success, fn.asked), Span(st.medianReply))
   return l1, l2
 end
 
@@ -73,12 +79,15 @@ local function Cells(r, st)
   local dim = r.few and DIM_HEX or ""
   local label = Sanitize(r.label) .. (r.few and "*" or "")
   if r.token and not r.few then label = ns.ClassHex(r.token) .. label .. "|r" elseif r.few then label = DIM_HEX .. label .. "|r" end
+  local gCol = r.few and DIM_HEX or GOLD_HEX
   return {
     label = label,
     sent = dim .. r.sent, replied = dim .. r.replied, funded = dim .. r.funded,
     rate = string.format("%s%d (%.1f%%)", dim, r.success, r.rate * 100),
-    gold = (r.few and DIM_HEX or GOLD_HEX) .. Money(r.gold),
-    goldPerAsk = (r.few and DIM_HEX or GOLD_HEX) .. Money(r.goldPerAsk),
+    gold = gCol .. Money(r.gold),
+    goldPerReply = gCol .. Money(r.goldPerReply),
+    goldPerAsk = gCol .. Money(r.goldPerAsk),
+    items = dim .. tostring(r.items or 0),
   }
 end
 
@@ -138,12 +147,36 @@ local function ViewButtons(pane)
   pane.views = {}
   local x = 10
   for _, v in ipairs(ns.STATS_VIEWS) do
-    local w = math.max(48, #v.label * 7 + 16)
+    local w = math.max(46, #v.label * 6 + 18)
     local b = MakeButton(pane, v.label, w)
     b:SetPoint("TOPLEFT", x, -74)
     local id = v.id
     b:SetScript("OnClick", function() BegDB.settings.statsView = id; pane.offset = 0; ns.RefreshUI() end)
     pane.views[id] = b
+    x = x + w + 4
+  end
+end
+
+local function CohortButtons(pane)
+  local bar = CreateFrame("Frame", nil, pane)
+  bar:SetPoint("TOPLEFT", 10, -100)
+  bar:SetPoint("TOPRIGHT", -10, -100)
+  bar:SetHeight(22)
+  bar:Hide()
+  pane.cohortBar = bar
+  pane.cohorts = {}
+  local x = 0
+  for _, cv in ipairs(ns.COHORT_VIEWS) do
+    local w = math.max(78, #cv.label * 6 + 18)
+    local b = MakeButton(bar, cv.label, w)
+    b:SetPoint("TOPLEFT", x, 0)
+    local id = cv.id
+    b:SetScript("OnClick", function()
+      BegDB.settings.statsCohort = id
+      pane.offset = 0
+      ns.RefreshUI()
+    end)
+    pane.cohorts[id] = b
     x = x + w + 4
   end
 end
@@ -167,8 +200,8 @@ end
 local function NewRow(pane, i)
   local row = CreateFrame("Frame", nil, pane)
   row:SetHeight(ROW_H)
-  row:SetPoint("TOPLEFT", 0, -TOP - (i - 1) * ROW_H)
-  row:SetPoint("TOPRIGHT", 0, -TOP - (i - 1) * ROW_H)
+  row:SetPoint("TOPLEFT", 0, -TOP_STD - (i - 1) * ROW_H)
+  row:SetPoint("TOPRIGHT", 0, -TOP_STD - (i - 1) * ROW_H)
   row.cells = {}
   for _, col in ipairs(COLS) do
     local fs = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -181,11 +214,30 @@ local function NewRow(pane, i)
   return row
 end
 
+local function LayoutTable(pane, isCohort)
+  if pane.lastIsCohort == isCohort then return end
+  pane.lastIsCohort = isCohort
+  pane.cohortBar:SetShown(isCohort)
+  local headY = isCohort and -126 or -100
+  local topY  = isCohort and TOP_COHORT or TOP_STD
+  for _, col in ipairs(COLS) do
+    local b = pane.heads[col[1]]
+    b:ClearAllPoints()
+    b:SetPoint("TOPLEFT", col[3], headY)
+  end
+  for i = 1, ROWS do
+    local row = pane.rows[i]
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", 0, -topY - (i - 1) * ROW_H)
+    row:SetPoint("TOPRIGHT", 0, -topY - (i - 1) * ROW_H)
+  end
+end
+
 function W.MakeStatsPane(f)
   local pane = CreateFrame("Frame", nil, f, BACKDROP)
   Style(pane, 0.055, 0.055, 0.07, 0.95)
   pane:SetPoint("TOPLEFT", 12, -192)
-  pane:SetPoint("BOTTOMRIGHT", -12, 68)
+  pane:SetPoint("BOTTOMRIGHT", -12, 78)
   pane:EnableMouseWheel(true)
   pane:Hide()
   pane.offset = 0
@@ -197,6 +249,7 @@ function W.MakeStatsPane(f)
   pane.funnel:SetHeight(32)
   pane.funnel:SetJustifyV("TOP")
   ViewButtons(pane)
+  CohortButtons(pane)
   Headers(pane)
   pane.rows = {}
   for i = 1, ROWS do pane.rows[i] = NewRow(pane, i) end
@@ -214,25 +267,31 @@ end
 -- Painting
 ----------------------------------------------------------------------
 
-local function PaintControls(pane, st, view)
+local function PaintControls(pane, st, view, cohort)
   local s = BegDB.settings
   for id, b in pairs(pane.stage) do Tint(b, st.stage == id) end
   pane.stage.gold:SetLabel("Gold >= " .. Short(st.goldMin))
   pane.sample:SetLabel(string.format("Trust after %d asks", st.minSample))
   for id, b in pairs(pane.views) do Tint(b, id == view) end
   if s.statsView ~= view then s.statsView = view end
+  if pane.cohorts then
+    for id, b in pairs(pane.cohorts) do Tint(b, id == cohort) end
+  end
   for _, col in ipairs(COLS) do
     local key = col[1]
+    local title = (key == "label" and view == "cohorts") and "Cohort" or col[2]
     local arrow = (pane.sortKey == key) and (pane.sortDesc and " v" or " ^") or ""
-    pane.heads[key]:SetLabel(col[2] .. arrow)
+    pane.heads[key]:SetLabel(title .. arrow)
   end
 end
 
-local function PaintRows(pane, list, st)
+local function PaintRows(pane, list, st, isCohort)
+  local vis = isCohort and ROWS_COHORT or ROWS
   local n = #list
-  pane.offset = math.max(0, math.min(pane.offset, math.max(0, n - ROWS)))
+  pane.offset = math.max(0, math.min(pane.offset, math.max(0, n - vis)))
   for i = 1, ROWS do
-    local row, r = pane.rows[i], list[pane.offset + i]
+    local row = pane.rows[i]
+    local r = (i <= vis) and list[pane.offset + i] or nil
     row:SetShown(r ~= nil)
     if r then
       for key, text in pairs(Cells(r, st)) do row.cells[key]:SetText(text) end
@@ -240,7 +299,7 @@ local function PaintRows(pane, list, st)
   end
   local foot = n == 0 and "Nothing asked yet: send a whisper or a mail and the numbers appear here."
     or string.format("%d-%d of %d.  * = fewer than %d asks, too few to trust (rates sort them last).  Click a heading to sort, scroll for more.",
-      pane.offset + 1, math.min(n, pane.offset + ROWS), n, st.minSample)
+      pane.offset + 1, math.min(n, pane.offset + vis), n, st.minSample)
   pane.foot:SetText(foot)
 end
 
@@ -250,15 +309,26 @@ function W.PaintStats(f)
   local st = ns.Stats()
   local view = BegDB.settings.statsView
   if not ns.STATS_VIEW_IDS[view] then view = "template" end
-  if pane.sortView ~= view then
-    pane.sortView = view
-    pane.sortKey, pane.sortDesc = ns.StatsDefaultSort(view)
+  local isCohort = (view == "cohorts")
+  local cohort = BegDB.settings.statsCohort
+  if not ns.COHORT_VIEW_IDS[cohort] then cohort = "level_class" end
+  local activeKey = isCohort and ("cohorts:" .. cohort) or view
+  if pane.sortView ~= activeKey then
+    pane.sortView = activeKey
+    if isCohort then
+      pane.sortKey, pane.sortDesc = "gold", true
+    else
+      pane.sortKey, pane.sortDesc = ns.StatsDefaultSort(view)
+    end
     pane.offset = 0
   end
-  local sig = table.concat({ st.sig, view, pane.sortKey, tostring(pane.sortDesc), pane.offset }, "|")
+  local sig = table.concat({ st.sig, activeKey, pane.sortKey, tostring(pane.sortDesc), pane.offset }, "|")
   if pane.paintSig == sig then return end
   pane.paintSig = sig
-  PaintControls(pane, st, view)
+  LayoutTable(pane, isCohort)
+  PaintControls(pane, st, view, cohort)
   pane.funnel:SetText(table.concat({ FunnelLines(st) }, "\n"))
-  PaintRows(pane, ns.StatsRows(view, pane.sortKey, pane.sortDesc), st)
+  local rows = isCohort and ns.CohortRows(cohort, pane.sortKey, pane.sortDesc)
+    or ns.StatsRows(view, pane.sortKey, pane.sortDesc)
+  PaintRows(pane, rows, st, isCohort)
 end

@@ -8,7 +8,7 @@ local Z = ZipUI
 local ACCENT = { 0.36, 0.78, 1.00 }
 local WHITE = { 0.9, 0.9, 0.9 }
 
-local FLOOR = { minLevel = 1, maxLevel = 1, bandSize = 1, whoCapWarning = 1, replyGap = 0, rewhisperMinutes = 0 }
+local FLOOR = { minLevel = 1, maxLevel = 1, bandSize = 1, whoCapWarning = 1, replyGap = 0, rewhisperMinutes = 0, guildCooldownMinutes = 0 }
 
 -- The new value for a field, or nil when it is not a number or breaks the Min / Max order.
 local function checked(key, text)
@@ -75,10 +75,10 @@ local function load(c)
   c.preview()
 end
 
--- Commit any number that was typed and then abandoned by closing the page, rather than silently discarding it.
+-- Commit any number that was typed and then abandoned by closing the page, using the same validation as Enter/Escape.
 local function commitTyped(c)
   for key, e in pairs(c.fields) do
-    local v = tonumber(e:GetText())
+    local v = checked(key, e:GetText())
     if v then BegDB.settings[key] = v end
   end
 end
@@ -93,16 +93,19 @@ function ns.SettingsScan(page)
   c.slicesPrev = S.Note(page, "", 0, 76, 524, { 0.50, 0.85, 0.50 })
   S.Label(page, "Other", 0, 108, ACCENT)
   addField(c, "replyGap", "Send gap (seconds)", 0, 130)
-  addField(c, "whoCapWarning", "Cap warning at", 180, 130)
-  addField(c, "rewhisperMinutes", "Re-whisper (min)", 360, 130)
-  S.Label(page, "Behaviour", 0, 172, ACCENT)
-  addSwitch(c, "Skip non-Latin names", "skipNonLatin", 194)
-  addSwitch(c, "Auto-archive anyone who is offline", "autoArchiveOffline", 220)
-  addSwitch(c, "One-click send (off: the message loads into chat and you press Enter)", "oneClickSend", 246, ns.RefreshUI)
-  S.Note(page, "Escape or Enter saves a number. One /who query per click, and results are capped per query, so narrow ranges cover more people.", 0, 282)
+  addField(c, "whoCapWarning", "Cap warning at", 190, 130)
+  addField(c, "rewhisperMinutes", "Re-whisper (min)", 0, 160)
+  addField(c, "guildCooldownMinutes", "Guild cooldown (min)", 190, 160)
+  S.Label(page, "Behaviour", 0, 198, ACCENT)
+  addSwitch(c, "Skip non-Latin names", "skipNonLatin", 220)
+  addSwitch(c, "Skip friends, guildmates and party/raid members", "skipKnownPlayers", 246)
+  addSwitch(c, "Skip guildless players", "skipGuildless", 272)
+  addSwitch(c, "Auto-archive anyone who is offline", "autoArchiveOffline", 298)
+  addSwitch(c, "One-click send (off: the message loads into chat and you press Enter)", "oneClickSend", 324, ns.RefreshUI)
+  S.Note(page, "Escape or Enter saves a number. Guild cooldown spaces out asks to the same guild (0 = off).", 0, 358)
   S.Add("scan", page, {
     Load = function() load(c) end, Refresh = c.preview, fields = c.fields,
     Hide = function() commitTyped(c) end,
   })
-  return 330
+  return 402
 end

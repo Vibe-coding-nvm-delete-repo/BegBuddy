@@ -32,6 +32,14 @@ local ICON = {
   levels    = "Interface\\Icons\\INV_Misc_Note_01:14:14:0:0:64:64:5:59:5:59",
   settings  = "Interface\\Icons\\INV_Misc_Gear_01:14:14:0:0:64:64:5:59:5:59",
   ready     = "Interface\\RaidFrame\\ReadyCheck-Ready:14:14",
+  gph       = "Interface\\Icons\\INV_Misc_Coin_02:16:16:0:0:64:64:5:59:5:59",
+  auto      = "Interface\\Icons\\Spell_Nature_Swiftness:16:16:0:0:64:64:5:59:5:59",
+  automail  = "Interface\\Minimap\\Tracking\\Mailbox:16:16",
+  search    = "Interface\\Icons\\INV_Misc_Spyglass_03:14:14:0:0:64:64:5:59:5:59",
+  reply     = "Interface\\Icons\\INV_Letter_18:14:14:0:0:64:64:5:59:5:59",
+  guild     = "Interface\\Icons\\INV_Shirt_GuildTabard_01:14:14:0:0:64:64:5:59:5:59",
+  stats     = "Interface\\Icons\\INV_Misc_Book_09:14:14:0:0:64:64:5:59:5:59",
+  cohort    = "Interface\\Icons\\INV_Misc_GroupLooking:14:14:0:0:64:64:5:59:5:59",
 }
 local function WithIcon(key, label)
   return "|T" .. ICON[key] .. "|t " .. label

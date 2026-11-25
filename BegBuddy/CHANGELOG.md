@@ -1,5 +1,15 @@
 # BegBuddy changelog
 
+## 0.6.0 (2026-11-25)
+
+- **Live Gold/Hour top bar:** Always-visible gold-bordered `Gold/hr` pill in the main header tracking rate from the 1st message sent (with tooltip showing All-time GPH, Session GPH, Gold/reply, total items, and funded count; click to jump to Analytics).
+- **Dashboard UX/UI upgrade:** Inline **Min / Max level** inputs directly on the home Scan panel, a much larger vividly colored **AUTO SEND NEXT** (emerald green) / **MAIL NEXT** (gold) CTA with icon and count, and instant **Search + Needs Reply / Guild** filter bar above the contact list.
+- **16 template variables:** `{name}`, `{level}`, `{class}`, `{race}`, `{zone}`, `{guild}`, `{realm}`, `{me}` / `{myname}`, `{mylevel}`, `{myclass}`, `{myrace}`, `{myzone}`, `{myguild}`, `{greeting}`, `{day}`, and `{ask_num}` across both Whisper and Mail templates, with clickable insert chips and real-contact live preview.
+- **Guild & Race intelligence:** Captures `guild` and `race` from `/who`, adds configurable **Per-Guild Cooldown** (default 60 min) so two members of the same guild aren't messaged back-to-back, and auto-skips friends, guildmates, and party/raid members during scans.
+- **Automatic trade attribution:** Snapshots gold + named items (`2x Linen Bag`, etc.) on `TRADE_TARGET_ITEM_CHANGED`, `TRADE_MONEY_CHANGED`, and `TRADE_ACCEPT_UPDATE`, automatically closing the deal in the CRM (`Funded`), recording template & cohort analytics, and auto-creating non-known trade partners so no closed deal is missed.
+- **Rich sortable Cohort Analytics subtab:** New **Cohorts** subtab inside Analytics with sortable `Gold/reply`, `Gold/ask`, `Total Gold`, `Items`, and `Success %` across `Level x Class`, `Zone x Level`, `Guild vs Solo`, `Top Guilds`, `Template x Channel`, and `Time x Zone`.
+- **Bug fixes & standalone packaging:** Fixed `SettingsScan` closing without validating typed inputs, made `Install-BegBuddy.ps1` and `Publish-BegBuddy.ps1` self-contained, and added GitHub Actions CI.
+
 ## 0.5.2 (2026-11-14)
 
 - Problem log: every Lua error and every call the game refuses from a Zip addon is now saved, so a break can be traced. `/beg health` lists them and `/beg health clear` empties the list. You get one chat line the first time something is saved.

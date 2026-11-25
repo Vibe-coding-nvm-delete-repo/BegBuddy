@@ -8,10 +8,18 @@ local function Add(lines, text) lines[#lines + 1] = text end
 local function ContactLine(c)
   local bits = {}
   if c.level then bits[#bits + 1] = "level " .. tostring(c.level) end
+  if c.race  then bits[#bits + 1] = tostring(c.race) end
   if c.class then bits[#bits + 1] = tostring(c.class) end
+  if c.guild and c.guild ~= "" then bits[#bits + 1] = "<" .. tostring(c.guild) .. ">" end
   if c.zone  then bits[#bits + 1] = tostring(c.zone) end
   if c.attempts and c.attempts > 0 then
     bits[#bits + 1] = "attempts " .. tostring(c.attempts)
+  end
+  if (c.goldIn or 0) > 0 and ns.Coins then
+    bits[#bits + 1] = "gold " .. ns.Coins(c.goldIn)
+  end
+  if (c.itemsIn or 0) > 0 then
+    bits[#bits + 1] = "items " .. tostring(c.itemsIn)
   end
   return string.format("%s%s", tostring(c.name or "?"),
     (#bits > 0) and ("  [" .. table.concat(bits, ", ") .. "]") or "")

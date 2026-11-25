@@ -11,16 +11,54 @@ local MakeZonePicker, MakeList = W.MakeZonePicker, W.MakeList
 local function NewMainFrame()
   -- The shell (frame, title, close, Settings button, drag, saved place and lock) is ZipUI's.
   return ZipUI.Window({
-    name = "BegBuddyFrame", title = "BegBuddy", icon = ns.ICON, width = 800, height = 600, settings = "begbuddy",
+    name = "BegBuddyFrame", title = "BegBuddy", icon = ns.ICON, width = 860, height = 630, settings = "begbuddy",
     db = function() BegDB.window = BegDB.window or {}; return BegDB.window end,
   })
 end
 
 local function MainHeader(f)
-  local sub = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  sub:SetPoint("LEFT", f.title, "RIGHT", 8, 0)
-  sub:SetText("one click, one message - never automatic")
-  sub:SetTextColor(DIM[1], DIM[2], DIM[3])
+  -- Live Gold/Hour pill front and center in the top bar at all times.
+  local gphBtn = CreateFrame("Button", nil, f, BACKDROP)
+  Style(gphBtn, 0.20, 0.15, 0.03, 0.96)
+  if gphBtn.SetBackdropBorderColor then gphBtn:SetBackdropBorderColor(0.85, 0.68, 0.16, 1) end
+  gphBtn:SetHeight(24)
+  gphBtn:SetWidth(215)
+  gphBtn:SetPoint("LEFT", f.title, "RIGHT", 14, 0)
+  gphBtn.text = gphBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  gphBtn.text:SetPoint("CENTER")
+  gphBtn.text:SetText(WithIcon("gph", "|cffffd100Gold/hr: 0c|r"))
+  gphBtn:SetScript("OnClick", function()
+    f.activeTab = "stats"
+    ns.RefreshUI()
+    ns.FlushUI()
+  end)
+  gphBtn:SetScript("OnEnter", function(self)
+    if self.SetBackdropColor then self:SetBackdropColor(0.28, 0.21, 0.04, 1) end
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:SetText("Gold per Hour (from 1st message sent)", 1, 0.82, 0)
+    if ns.GoldPerHour and ns.Coins then
+      local gph, totalGold, elapsed, firstAt, sessGph, sessGold, sessSec = ns.GoldPerHour()
+      if firstAt then
+        GameTooltip:AddLine(string.format("All-time: %s / hr  (%s over %.1f hrs)", ns.Coins(math.floor(gph)), ns.Coins(totalGold), elapsed / 3600), 1, 1, 1)
+      else
+        GameTooltip:AddLine("Send your first message to start tracking Gold/hr.", 0.8, 0.8, 0.8)
+      end
+      if ns.sessionFirstAskAt then
+        GameTooltip:AddLine(string.format("This session: %s / hr  (%s over %.0f min)", ns.Coins(math.floor(sessGph)), ns.Coins(sessGold), sessSec / 60), 0.5, 0.95, 0.5)
+      end
+      local st = ns.Stats()
+      local fn = st.funnel
+      local gpr = fn.replied > 0 and math.floor(fn.gold / fn.replied) or 0
+      GameTooltip:AddLine(string.format("Gold/reply: %s   Items: %d   Funded: %d", ns.Coins(gpr), fn.items or 0, fn.funded or 0), 0.85, 0.85, 0.88)
+    end
+    GameTooltip:AddLine("Click to open Analytics & Cohorts.", 0.36, 0.78, 1)
+    GameTooltip:Show()
+  end)
+  gphBtn:SetScript("OnLeave", function(self)
+    if self.SetBackdropColor then self:SetBackdropColor(0.20, 0.15, 0.03, 0.96) end
+    GameTooltip:Hide()
+  end)
+  f.gphBtn = gphBtn
 
   local settingsBtn = f.settingsBtn
 
@@ -40,7 +78,7 @@ local function MainHeader(f)
 
   -- Whisper or mail. Mail turns on by itself while a mailbox is open; this
   -- switches back to whispers there if you want.
-  local modeBtn = MakeButton(f, "", 170)
+  local modeBtn = MakeButton(f, "", 166)
   modeBtn:SetPoint("RIGHT", leaveBtn, "LEFT", -6, 0)
   modeBtn:SetScript("OnClick", function()
     if not ns.mail.open then
@@ -88,23 +126,72 @@ local function NewScanPanel(f)
   return panel
 end
 
+local function MakeLevelInput(panel, key, label, width)
+  local eb = CreateFrame("EditBox", nil, panel, BACKDROP)
+  Style(eb, 0.09, 0.09, 0.12, 1)
+  eb:SetSize(width, 22)
+  eb:SetAutoFocus(false)
+  eb:SetMaxLetters(3)
+  eb:SetFontObject("ChatFontNormal")
+  eb:SetJustifyH("CENTER")
+  eb:SetTextInsets(2, 2, 0, 0)
+  local function commit(self)
+    self:ClearFocus()
+    local v = tonumber(self:GetText())
+    if v then
+      v = math.max(1, math.min(200, math.floor(v)))
+      local set = BegDB.settings
+      if key == "minLevel" and set.maxLevel and v > set.maxLevel then
+        ns.Print(string.format("Min level can't be above Max level (%d). Raise Max first.", set.maxLevel))
+      elseif key == "maxLevel" and set.minLevel and v < set.minLevel then
+        ns.Print(string.format("Max level can't be below Min level (%d). Lower Min first.", set.minLevel))
+      elseif v ~= set[key] then
+        set[key] = v
+        ns.Print(string.format("%s set to %d.", label, v))
+      end
+    end
+    self:SetText(tostring(BegDB.settings[key] or ""))
+    ns.RefreshUI()
+    ns.FlushUI()
+  end
+  eb:SetScript("OnEnterPressed", commit)
+  eb:SetScript("OnEscapePressed", commit)
+  eb:SetScript("OnEditFocusLost", commit)
+  return eb
+end
+
 local function ScanButtons(f, panel)
-  local cityDrop = MakeZonePicker(panel, 230)
+  local cityDrop = MakeZonePicker(panel, 220)
   cityDrop:SetPoint("TOPLEFT", 52, -26)
 
-  local addZone = MakeButton(panel, WithIcon("here", "Add this zone"), 112)
+  local addZone = MakeButton(panel, WithIcon("here", "Add zone"), 92)
   addZone:SetPoint("LEFT", cityDrop, "RIGHT", 6, 0)
   addZone:SetScript("OnClick", function()
     ns.AddCurrentZone()
     cityDrop:Refresh()
   end)
 
-  local levelsBtn = MakeButton(panel, WithIcon("levels", "Change levels"), 112)
-  levelsBtn:SetPoint("LEFT", addZone, "RIGHT", 6, 0)
-  levelsBtn:SetScript("OnClick", function() ns.UI.OpenSettings("scan") end)
+  -- Inline Min / Max level range directly on the home dashboard.
+  local lvlLbl = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  lvlLbl:SetPoint("LEFT", addZone, "RIGHT", 10, 0)
+  lvlLbl:SetText(WithIcon("levels", "Lvl:"))
+  lvlLbl:SetTextColor(DIM[1], DIM[2], DIM[3])
 
-  local nextZoneBtn = MakeButton(panel, WithIcon("nextzone", "Next zone"), 96)
-  nextZoneBtn:SetPoint("LEFT", levelsBtn, "RIGHT", 6, 0)
+  local minBox = MakeLevelInput(panel, "minLevel", "Min level", 36)
+  minBox:SetPoint("LEFT", lvlLbl, "RIGHT", 4, 0)
+  f.minLvlBox = minBox
+
+  local dash = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  dash:SetPoint("LEFT", minBox, "RIGHT", 3, 0)
+  dash:SetText("-")
+  dash:SetTextColor(DIM[1], DIM[2], DIM[3])
+
+  local maxBox = MakeLevelInput(panel, "maxLevel", "Max level", 36)
+  maxBox:SetPoint("LEFT", dash, "RIGHT", 3, 0)
+  f.maxLvlBox = maxBox
+
+  local nextZoneBtn = MakeButton(panel, WithIcon("nextzone", "Next zone"), 94)
+  nextZoneBtn:SetPoint("LEFT", maxBox, "RIGHT", 8, 0)
   nextZoneBtn:SetScript("OnClick", function()
     ns.NextZone()
     cityDrop:Refresh()
@@ -112,10 +199,10 @@ local function ScanButtons(f, panel)
   f.nextZoneBtn = nextZoneBtn
 
   -- Limits scans to the ticked classes, each in its class colour. None ticked scans everyone.
-  local classDrop = W.MakeClassPicker(panel, 140)
+  local classDrop = W.MakeClassPicker(panel, 136)
   classDrop:SetPoint("LEFT", nextZoneBtn, "RIGHT", 6, 0)
   f.classDrop = classDrop
-  return cityDrop, addZone, levelsBtn
+  return cityDrop, addZone
 end
 
 local function NextLine(f, panel)
@@ -151,14 +238,13 @@ end
 
 local function ScanPanel(f)
   local panel = NewScanPanel(f)
-  local cityDrop, addZone, levelsBtn = ScanButtons(f, panel)
+  local cityDrop, addZone = ScanButtons(f, panel)
   local nextText = NextLine(f, panel)
   local scanBtn, resetBtn = ScanActions(panel, cityDrop)
 
   f.scanPanel = panel
   f.cityDrop  = cityDrop
   f.addZone   = addZone
-  f.levelsBtn = levelsBtn
   f.nextText  = nextText
   f.scanBtn   = scanBtn
   f.resetBtn  = resetBtn
@@ -168,11 +254,11 @@ local function MainTabs(f)
   local tabRow = CreateFrame("Frame", nil, f)
   tabRow:SetPoint("TOPLEFT", 12, -164)
   tabRow:SetPoint("TOPRIGHT", -12, -164)
-  tabRow:SetHeight(22)
+  tabRow:SetHeight(24)
   f.tabButtons = {}
   local prev
   for i, tab in ipairs(ns.TABS) do
-    local b = MakeButton(tabRow, tab.label, 84)
+    local b = MakeButton(tabRow, tab.label, 90)
     if prev then b:SetPoint("LEFT", prev, "RIGHT", 4, 0)
     else b:SetPoint("LEFT", 0, 0) end
     local id = tab.id
@@ -184,8 +270,8 @@ local function MainTabs(f)
     prev = b
   end
   -- Stats sits apart from the pipeline tabs: it swaps the list and card for the numbers.
-  local stats = MakeButton(tabRow, "Stats", 70)
-  stats:SetPoint("LEFT", prev, "RIGHT", 16, 0)
+  local stats = MakeButton(tabRow, WithIcon("stats", "Analytics"), 96)
+  stats:SetPoint("LEFT", prev, "RIGHT", 14, 0)
   stats:SetScript("OnClick", function()
     f.activeTab = "stats"
     ns.RefreshUI()
@@ -194,23 +280,89 @@ local function MainTabs(f)
 end
 
 local function MainList(f)
+  -- Search + quick filter bar right above the contact list for instant lookup.
+  local bar = CreateFrame("Frame", nil, f)
+  bar:SetPoint("TOPLEFT", 12, -192)
+  bar:SetSize(330, 24)
+  f.searchBar = bar
+  f.searchQuery = ""
+  f.listFilters = { needsReply = false, hasGuild = false }
+
+  local sb = CreateFrame("EditBox", nil, bar, BACKDROP)
+  Style(sb, 0.08, 0.08, 0.10, 1)
+  sb:SetPoint("TOPLEFT", 0, 0)
+  sb:SetSize(148, 22)
+  sb:SetAutoFocus(false)
+  sb:SetMaxLetters(40)
+  sb:SetFontObject("ChatFontNormal")
+  sb:SetTextInsets(6, 18, 0, 0)
+  local ph = sb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  ph:SetPoint("LEFT", 6, 0)
+  ph:SetText("Search name/guild...")
+  ph:SetTextColor(0.45, 0.45, 0.50)
+  sb.placeholder = ph
+  sb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+  sb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+  sb:SetScript("OnTextChanged", function(self)
+    local txt = self:GetText() or ""
+    f.searchQuery = txt
+    ph:SetShown(txt == "")
+    ns.RefreshUI()
+  end)
+  f.searchBox = sb
+
+  local clr = CreateFrame("Button", nil, sb)
+  clr:SetSize(16, 16)
+  clr:SetPoint("RIGHT", -2, 0)
+  clr.t = clr:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  clr.t:SetPoint("CENTER")
+  clr.t:SetText("|cff8f8f96x|r")
+  clr:SetScript("OnClick", function()
+    sb:SetText("")
+    f.searchQuery = ""
+    sb:ClearFocus()
+    ns.RefreshUI()
+    ns.FlushUI()
+  end)
+
+  local nrBtn = MakeButton(bar, WithIcon("reply", "Reply"), 116)
+  nrBtn:SetPoint("LEFT", sb, "RIGHT", 4, 0)
+  nrBtn:SetScript("OnClick", function()
+    if f.activeTab ~= ns.STATUS.REPLIED then
+      f.activeTab = ns.STATUS.REPLIED
+      f.listFilters.needsReply = true
+    else
+      f.listFilters.needsReply = not f.listFilters.needsReply
+    end
+    ns.RefreshUI()
+  end)
+  f.needsReplyBtn = nrBtn
+
+  local gBtn = MakeButton(bar, WithIcon("guild", "Guild"), 58)
+  gBtn:SetPoint("LEFT", nrBtn, "RIGHT", 4, 0)
+  gBtn:SetScript("OnClick", function()
+    f.listFilters.hasGuild = not f.listFilters.hasGuild
+    ns.RefreshUI()
+  end)
+  f.hasGuildBtn = gBtn
+
   local list = MakeList(f, function(entry)
     f.advance = nil
     ns.activeContact = entry
     if ns.unread then ns.unread[entry.key] = nil end
     ns.RefreshUI()
   end)
-  list:SetPoint("TOPLEFT", 12, -192)
-  list:SetPoint("BOTTOMLEFT", 12, 68)
-  list:SetWidth(300)
+  list:SetPoint("TOPLEFT", 12, -220)
+  list:SetPoint("BOTTOMLEFT", 12, 78)
+  list:SetWidth(330)
   f.list = list
 end
 
 local function DetailHeader(f)
   local detail = CreateFrame("Frame", nil, f, BACKDROP)
   Style(detail, 0.05, 0.05, 0.06, 0.85)
-  detail:SetPoint("TOPLEFT", f.list, "TOPRIGHT", 8, 0)
-  detail:SetPoint("BOTTOMRIGHT", -12, 68)
+  detail:SetPoint("TOPLEFT", f.list, "TOPRIGHT", 8, 28)
+  detail:SetPoint("BOTTOMRIGHT", -12, 78)
   f.detail = detail
 
   local dName = detail:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -342,23 +494,23 @@ end
 -- Bottom bar: a "what to do next" hint on top, counters underneath
 local function BottomStatus(f)
   local hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  hint:SetPoint("BOTTOMLEFT", 12, 46)
-  hint:SetPoint("BOTTOMRIGHT", -100, 46)
+  hint:SetPoint("BOTTOMLEFT", 12, 54)
+  hint:SetPoint("BOTTOMRIGHT", -480, 54)
   hint:SetJustifyH("LEFT")
   hint:SetTextColor(ACCENT[1], ACCENT[2], ACCENT[3])
   f.hint = hint
 
   local status = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  status:SetPoint("BOTTOMLEFT", 12, 22)
-  status:SetPoint("BOTTOMRIGHT", -394, 22)
+  status:SetPoint("BOTTOMLEFT", 12, 24)
+  status:SetPoint("BOTTOMRIGHT", -540, 24)
   status:SetJustifyH("LEFT")
   status:SetTextColor(DIM[1], DIM[2], DIM[3])
   f.status = status
 end
 
 local function BottomButtons(f)
-  local pauseBtn = MakeButton(f, "Pause", 60)
-  pauseBtn:SetPoint("BOTTOMRIGHT", -12, 18)
+  local pauseBtn = MakeButton(f, "Pause", 64)
+  pauseBtn:SetPoint("BOTTOMRIGHT", -12, 22)
   pauseBtn:SetScript("OnClick", function()
     BegDB.paused = not BegDB.paused
     if not BegDB.paused then ns.warnCount = 0; ns.firstWarnAt = nil end
@@ -366,11 +518,36 @@ local function BottomButtons(f)
   end)
   f.pauseBtn = pauseBtn
 
-  -- One click, one whisper to the next person in Queued.
-  local autoBtn = MakeButton(f, WithIcon("whisper", "Auto: send next"), 160)
-  autoBtn:SetPoint("RIGHT", pauseBtn, "LEFT", -6, 0)
+  -- Prominent, high-visibility primary CTA: one click, one whisper (or mail).
+  local autoBtn = CreateFrame("Button", nil, f, BACKDROP)
+  Style(autoBtn, 0.10, 0.42, 0.20, 0.98)
+  if autoBtn.SetBackdropBorderColor then autoBtn:SetBackdropBorderColor(0.30, 0.85, 0.45, 1) end
+  autoBtn:SetSize(236, 36)
+  autoBtn:SetPoint("RIGHT", pauseBtn, "LEFT", -8, 0)
+  autoBtn.text = autoBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  autoBtn.text:SetPoint("CENTER")
+  autoBtn.text:SetText(WithIcon("auto", "AUTO SEND NEXT"))
+  function autoBtn:SetLabel(s) self.text:SetText(s) end
+  autoBtn:SetScript("OnEnter", function(self)
+    if not self:IsEnabled() or not self.SetBackdropColor then return end
+    if self.ctaMode == "mail" then self:SetBackdropColor(0.62, 0.44, 0.10, 1)
+    elseif self.ctaMode == "paused" then self:SetBackdropColor(0.45, 0.14, 0.14, 1)
+    else self:SetBackdropColor(0.15, 0.56, 0.28, 1) end
+  end)
+  autoBtn:SetScript("OnLeave", function(self)
+    if not self.SetBackdropColor then return end
+    if self.ctaMode == "mail" then self:SetBackdropColor(0.48, 0.34, 0.06, 0.98)
+    elseif self.ctaMode == "paused" then self:SetBackdropColor(0.35, 0.10, 0.10, 0.95)
+    elseif self.ctaMode == "empty" then self:SetBackdropColor(0.14, 0.14, 0.16, 0.90)
+    else self:SetBackdropColor(0.10, 0.42, 0.20, 0.98) end
+  end)
+  autoBtn:SetScript("OnMouseDown", function(self)
+    if self:IsEnabled() then self.text:SetPoint("CENTER", 1, -1) end
+  end)
+  autoBtn:SetScript("OnMouseUp", function(self) self.text:SetPoint("CENTER", 0, 0) end)
   autoBtn:SetScript("OnClick", function()
     if ns.SendNext() then ns.RefreshUI() end
+    ns.FlushUI()
   end)
   f.autoBtn = autoBtn
 end
@@ -446,6 +623,15 @@ local function BuildMain()
   f:HookScript("OnHide", function()
     if f.cityDrop and f.cityDrop.Close then f.cityDrop:Close() end
     if f.classDrop and f.classDrop.Close then f.classDrop:Close() end
+  end)
+  -- Keep the top-bar Gold/hr pill fresh every 15s while the window is open.
+  local gphElapsed = 0
+  f:SetScript("OnUpdate", function(self, dt)
+    gphElapsed = gphElapsed + (tonumber(dt) or 0)
+    if gphElapsed >= 15 then
+      gphElapsed = 0
+      if ns.PaintGphBadge then ns.PaintGphBadge(self) end
+    end
   end)
   f.activeTab = ns.STATUS.QUEUED
   return f

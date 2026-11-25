@@ -1,7 +1,7 @@
 ## Interface: 11509, 16001
 ## Title: BegBuddy
 ## Notes: Assisted /who scanning and outreach CRM. Never auto-sends: you press Enter.
-## Version: 0.5.2
+## Version: 0.6.0
 ## SavedVariables: BegDB
 ## Category: Zip
 ## IconTexture: Interface\Icons\INV_Misc_Coin_01

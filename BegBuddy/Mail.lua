@@ -29,20 +29,11 @@ end
 -- Rendering
 ----------------------------------------------------------------------
 
--- Like the whisper version, but a mail body keeps its line breaks.
-local function Fill(contact, text)
-  local t = tostring(text or "")
-  local name  = tostring(contact and contact.name or "?")
-  local level = contact and contact.level and tostring(contact.level) or ""
-  local out = t:gsub("{name}", (name:gsub("%%", "%%%%")))
-  out = out:gsub("{level}", (level:gsub("%%", "%%%%")))
-  return out
-end
-
+-- Uses the shared 15-variable template engine while keeping line breaks in the body.
 function ns.RenderMail(contact, tpl)
   tpl = tpl or ns.ActiveMailTemplate()
-  local subject = Fill(contact, tpl and tpl.subject):gsub("[\r\n]+", " ")
-  local body = Fill(contact, tpl and tpl.body):gsub("\r\n", "\n")
+  local subject = ns.FillTemplateText(contact, tpl and tpl.subject, true)
+  local body = ns.FillTemplateText(contact, tpl and tpl.body, false)
   subject = ns.TrimToBytes(subject, ns.MAIL_SUBJECT_MAX)
   body = ns.TrimToBytes(body, ns.MAIL_BODY_MAX)
   return subject, body
@@ -233,6 +224,8 @@ local function OnSendSuccess()
   local st = c.status
   if st == ns.STATUS.QUEUED or st == ns.STATUS.CONTACTED or st == ns.STATUS.ARCHIVED then
     c.attempts = (c.attempts or 0) + 1
+    ns.sessionFirstAskAt = ns.sessionFirstAskAt or time()
+    if ns.MarkGuildContacted then ns.MarkGuildContacted(c) end
     ns.SetStatus(c, ns.STATUS.CONTACTED)
   elseif ns.RefreshUI then
     ns.RefreshUI()

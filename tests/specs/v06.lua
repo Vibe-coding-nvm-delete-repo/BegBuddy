@@ -1,0 +1,210 @@
+-- BegBuddy v0.6 behavioral & boundary spec:
+-- Template variables (16), Guild/Race capture + Per-Guild Cooldown + Known-Player skip,
+-- Automatic trade attribution (gold + named items), Live Gold/Hour top bar,
+-- Dashboard Min/Max level inputs, Search/Filter + Needs Reply queue,
+-- Rich sortable Cohort Analytics subtab, and SettingsScan validation fix.
+
+local function eq(name, got, want)
+  local ok = got == want
+  check(name, ok)
+  if not ok then io.write("    got " .. tostring(got) .. ", want " .. tostring(want) .. "\n") end
+end
+local function truthy(name, v) check(name, v and true or false) end
+local function has(name, s, sub)
+  local ok = type(s) == "string" and s:find(sub, 1, true) ~= nil
+  check(name, ok)
+  if not ok then io.write("    expected '" .. tostring(s) .. "' to contain '" .. tostring(sub) .. "'\n") end
+end
+
+-- 1. Full 16-variable Template Engine (Whisper + Mail) ---------------------
+Reset()
+UnitName  = function(u) return u == "player" and "Beggar" or nil end
+UnitLevel = function() return 7 end
+UnitClass = function() return "Warrior" end
+UnitRace  = function() return "Human" end
+GetRealZoneText = function() return "Stormwind City" end
+GetGuildInfo    = function() return "Tiny Guild" end
+GetRealmName    = function() return "Dreamscythe" end
+
+local alice = NS.EnsureContact("Alice-Dreamscythe", {
+  level = 58, class = "Mage", classToken = "MAGE", race = "Gnome",
+  zone = "Ironforge", guild = "Arcane Order",
+})
+local tpl = "{greeting} {name} (lvl {level} {race} {class} in {zone} of {guild} on {realm})! I am {me} ({mylevel} {myrace} {myclass} in {myzone}, {myguild}) on {day} #{ask_num} {unknown}"
+local rendered = NS.RenderTemplate(alice, tpl)
+has("whisper renders {name}", rendered, "Alice")
+has("whisper renders {level}", rendered, "lvl 58")
+has("whisper renders {race} and {class}", rendered, "Gnome Mage")
+has("whisper renders {zone}", rendered, "Ironforge")
+has("whisper renders {guild}", rendered, "Arcane Order")
+has("whisper renders {realm}", rendered, "Dreamscythe")
+has("whisper renders {me} and self vars", rendered, "I am Beggar (7 Human Warrior in Stormwind City, Tiny Guild)")
+has("whisper renders {ask_num}", rendered, "#1")
+has("unknown {token} stays untouched", rendered, "{unknown}")
+
+local solo = NS.EnsureContact("Solo", { level = 20, class = "Rogue" })
+local cleaned = NS.RenderTemplate(solo, "Hi {name} {guild} friend!")
+eq("empty optional {guild} collapses double spaces cleanly", cleaned, "Hi Solo friend!")
+
+local mSubj, mBody = NS.RenderMail(alice, { subject = "{greeting} {name} ({class})", body = "Hey {name} in {zone}!\nFrom {me} ({myclass})" })
+has("mail subject renders vars", mSubj, "Alice (Mage)")
+has("mail body keeps newline and renders vars", mBody, "Hey Alice in Ironforge!\nFrom Beggar (Warrior)")
+
+-- 2. Guild & Race /who capture + Auto-Skip Known Players + Guild Cooldown --
+Reset()
+local whoRows = {
+  { fullName = "KnightOne", fullGuildName = "Knights", level = 60, raceStr = "Human", classStr = "Paladin", classFile = "PALADIN", area = "Stormwind City" },
+  { fullName = "KnightTwo", fullGuildName = "Knights", level = 55, raceStr = "Dwarf", classStr = "Priest",  classFile = "PRIEST",  area = "Stormwind City" },
+  { fullName = "BestFriend", fullGuildName = "Friends", level = 40, raceStr = "Human", classStr = "Mage", classFile = "MAGE", area = "Stormwind City" },
+  { fullName = "GuildMate",  fullGuildName = "MyGuild", level = 50, raceStr = "Human", classStr = "Rogue", classFile = "ROGUE", area = "Stormwind City" },
+  { fullName = "LoneWolf",   fullGuildName = "",        level = 45, raceStr = "Night Elf", classStr = "Hunter", classFile = "HUNTER", area = "Ironforge" },
+}
+C_FriendList.GetNumWhoResults = function() return #whoRows, #whoRows end
+C_FriendList.GetWhoInfo = function(i) return whoRows[i] end
+C_FriendList.GetFriendInfo = function(n) return n == "BestFriend" and { name = "BestFriend" } or nil end
+C_GuildInfo = { MemberExistsByName = function(n) return n == "GuildMate" end }
+
+local added, shown, _, skipped = NS.Harvest()
+eq("harvest captures non-known players", added, 3)
+eq("harvest skips friend and guildmate", skipped, 2)
+eq("friend was not queued", NS.FindContact("BestFriend"), nil)
+eq("guildmate was not queued", NS.FindContact("GuildMate"), nil)
+
+local k1 = NS.FindContact("KnightOne")
+local k2 = NS.FindContact("KnightTwo")
+local lw = NS.FindContact("LoneWolf")
+eq("guild captured from /who", k1.guild, "Knights")
+eq("race captured from /who", k1.race, "Human")
+eq("empty guild stored as nil", lw.guild, nil)
+
+-- Per-Guild Cooldown: messaging KnightOne holds KnightTwo, so NextToSend picks LoneWolf
+BegDB.settings.guildCooldownMinutes = 60
+BegDB.settings.oneClickSend = true
+NS.MarkGuildContacted(k1)
+NS.SetStatus(k1, NS.STATUS.CONTACTED)
+local canK2, whyK2 = NS.CanWhisper(k2)
+eq("per-guild cooldown blocks second member of same guild", canK2, false)
+has("guild cooldown reason names the guild", whyK2, "<Knights>")
+local nextC = NS.NextToSend()
+eq("NextToSend skips guild-cooldown member and picks LoneWolf", nextC and nextC.name, "LoneWolf")
+
+BegDB.settings.guildCooldownMinutes = 0
+local canK2Off = NS.CanWhisper(k2)
+eq("guildCooldownMinutes = 0 disables guild cooldown", canK2Off, true)
+
+-- 3. Automatic Trade Tracking (Gold + Named Items) & Closed-Deal CRM -------
+Reset()
+ERR_TRADE_COMPLETE = "Trade complete."
+local partner, offeredCopper, offeredItems = "Generous", 0, {
+  { "Linen Bag", nil, 2 },
+  { "Greater Magic Wand", nil, 1 },
+}
+UnitName = function(u) if u == "NPC" then return partner end return "Beggar" end
+GetTargetTradeMoney = function() return offeredCopper end
+GetTradeTargetItemInfo = function(i) local it = offeredItems[i]; if it then return it[1], it[2], it[3] end end
+GetTradeTargetItemLink = function(i) local it = offeredItems[i]; if it then return "[" .. it[1] .. "]" end end
+C_FriendList.GetFriendInfo = function(n) return n == "MyBuddy" and { name = "MyBuddy" } or nil end
+
+local gen = NS.EnsureContact("Generous", { level = 60, class = "Mage", guild = "Rich Guild" })
+NS.RecordSent(gen)
+NS.SetStatus(gen, NS.STATUS.CONTACTED)
+Fire("TRADE_SHOW")
+Fire("TRADE_TARGET_ITEM_CHANGED")
+Fire("TRADE_ACCEPT_UPDATE", 1, 1)
+Fire("UI_INFO_MESSAGE", 0, ERR_TRADE_COMPLETE)
+eq("item-only trade marks contact funded", gen.status, "funded")
+eq("item-only trade counts total units", gen.itemsIn, 3)
+eq("item-only trade stores named item list", gen.giftItems and gen.giftItems[1].name, "Linen Bag")
+eq("item-only trade credits template funded count", NS.ActiveTemplate().funded, 1)
+has("trade history records exact item names", gen.history[#gen.history].text, "2x Linen Bag, Greater Magic Wand")
+
+-- Known friend trading you is not auto-added to CRM
+partner = "MyBuddy"
+offeredCopper = 5000
+Fire("TRADE_SHOW")
+Fire("TRADE_ACCEPT_UPDATE", 1, 1)
+Fire("UI_INFO_MESSAGE", 0, ERR_TRADE_COMPLETE)
+eq("known friend trade does not pollute CRM", NS.FindContact("MyBuddy"), nil)
+
+-- 4. Live Gold/Hour (from 1st message sent) & Top Bar Pill -----------------
+Reset()
+NS.UI.Open()
+local f = NS.UI.frame
+local now = time()
+local p1 = NS.EnsureContact("P1", { level = 55, class = "Mage", classToken = "MAGE", zone = "Stormwind City", guild = "Alpha" })
+p1.attempts = 1; p1.firstContactedAt = now - 1800; p1.contactedAt = now - 1800; p1.repliedAt = now - 1700
+p1.status = "funded"; p1.countedReplied = true; p1.countedFunded = true; p1.goldIn = 50000; p1.itemsIn = 1; p1.templateUsed = "Default"
+local p2 = NS.EnsureContact("P2", { level = 52, class = "Mage", classToken = "MAGE", zone = "Stormwind City", guild = "Alpha" })
+p2.attempts = 1; p2.firstContactedAt = now - 1200; p2.contactedAt = now - 1200; p2.repliedAt = now - 1100
+p2.status = "replied"; p2.countedReplied = true; p2.goldIn = 0; p2.templateUsed = "Default"
+local p3 = NS.EnsureContact("P3", { level = 25, class = "Warrior", classToken = "WARRIOR", zone = "Ironforge" })
+p3.attempts = 1; p3.firstContactedAt = now - 600; p3.contactedAt = now - 600; p3.repliedAt = now - 500
+p3.status = "funded"; p3.countedReplied = true; p3.countedFunded = true; p3.goldIn = 10000; p3.itemsIn = 2; p3.templateUsed = "Mail1"; p3.templateKind = "mail"
+NS.TouchList()
+
+local gph, totalGold, elapsed = NS.GoldPerHour(now)
+eq("total gold across contacts is 6g", totalGold, 60000)
+eq("elapsed from 1st message sent is 1800s", elapsed, 1800)
+eq("Gold/hr from 1st message is 12g/hr (120000c)", math.floor(gph + 0.5), 120000)
+
+NS.RefreshUINow()
+has("top bar GPH pill renders live Gold/hr", f.gphBtn.text:GetText(), "12g 0s")
+
+-- 5. Dashboard Inline Min/Max Level Inputs ---------------------------------
+f.minLvlBox:SetText("20")
+f.minLvlBox:GetScript("OnEnterPressed")(f.minLvlBox)
+eq("dashboard minLevel input updates BegDB.settings", BegDB.settings.minLevel, 20)
+f.maxLvlBox:SetText("10")
+f.maxLvlBox:GetScript("OnEnterPressed")(f.maxLvlBox)
+eq("dashboard maxLevel rejects value below minLevel", BegDB.settings.maxLevel, 60)
+
+-- 6. Fast Search/Filter Bar + Needs Reply Queue ----------------------------
+NS.PushHistory(p2, "in", "Sure meet me at AH")
+eq("NeedsReply true when contact spoke last", NS.NeedsReply(p2), true)
+eq("NeedsReplyCount counts warm leads", NS.NeedsReplyCount(), 1)
+local filteredReply = NS.FilteredList("replied", "", { needsReply = true })
+eq("FilteredList needsReply finds P2", #filteredReply, 1)
+local filteredGuild = NS.FilteredList("funded", "alpha", { hasGuild = true })
+eq("FilteredList search by guild finds P1", #filteredGuild == 1 and filteredGuild[1].name, "P1")
+NS.PushHistory(p2, "out", "On my way!")
+eq("NeedsReply clears once you reply", NS.NeedsReply(p2), false)
+local filteredAfterReply = NS.FilteredList("replied", "", { needsReply = true })
+eq("FilteredList invalidates cache immediately after replying", #filteredAfterReply, 0)
+
+-- 7. Rich Sortable Cohort Analytics Subtab ---------------------------------
+BegDB.settings.statsMinSample = 1
+NS.TouchList()
+local lc = NS.CohortRows("level_class", "goldPerReply", true)
+eq("Level x Class cohort has 2 groups", #lc, 2)
+eq("50-59 Mage leads by goldPerReply (25000c vs 10000c)", lc[1].label, "50-59 Mage")
+eq("50-59 Mage goldPerReply is 25000c", lc[1].goldPerReply, 25000)
+eq("20-29 Warrior goldPerReply is 10000c", lc[2].goldPerReply, 10000)
+
+local gs = NS.CohortRows("guild_status", "gold", true)
+eq("Guild vs Solo cohort separates In a Guild vs Guildless", gs[1].label, "In a Guild")
+eq("In a Guild total gold is 50000c", gs[1].gold, 50000)
+
+local tm = NS.CohortRows("template_method", "gold", true)
+eq("Template x Channel separates Whisper and Mail", #tm, 2)
+
+f.activeTab = "stats"
+BegDB.settings.statsView = "cohorts"
+BegDB.settings.statsCohort = "level_class"
+NS.RefreshUINow()
+truthy("Cohorts subtab bar is shown when view is cohorts", f.statsPane.cohortBar:IsShown())
+has("Cohorts subtab renders 50-59 Mage row", f.statsPane.rows[1].cells.label:GetText(), "50-59 Mage")
+has("Cohorts subtab renders Gold/reply cell", f.statsPane.rows[1].cells.goldPerReply:GetText(), "2g 50s")
+
+-- 8. SettingsScan Hide() validation fix (cannot bypass checked()) ----------
+BegDB.settings.minLevel = 10
+BegDB.settings.maxLevel = 40
+NS.UI.OpenSettings("scan")
+local scanPage = NS.Settings.pages and NS.Settings.pages.scan
+if scanPage and scanPage.fields and scanPage.fields.minLevel and scanPage.Hide then
+  scanPage.fields.minLevel:SetText("55") -- invalid: > maxLevel (40)
+  scanPage.Hide()
+  eq("SettingsScan Hide() refuses minLevel > maxLevel", BegDB.settings.minLevel, 10)
+  scanPage.fields.guildCooldownMinutes:SetText("45")
+  scanPage.Hide()
+  eq("SettingsScan Hide() saves valid guildCooldownMinutes", BegDB.settings.guildCooldownMinutes, 45)
+end

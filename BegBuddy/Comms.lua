@@ -13,20 +13,113 @@ ns.firstWarnAt   = nil
 -- Template
 ----------------------------------------------------------------------
 
+-- Full list of supported template variables (shown in Settings > Whisper & Mail).
+ns.TEMPLATE_VARS = {
+  { token = "{name}",     desc = "Recipient character name" },
+  { token = "{level}",    desc = "Recipient level" },
+  { token = "{class}",    desc = "Recipient class (e.g. Mage)" },
+  { token = "{race}",     desc = "Recipient race (e.g. Human)" },
+  { token = "{zone}",     desc = "Recipient zone" },
+  { token = "{guild}",    desc = "Recipient guild name" },
+  { token = "{realm}",    desc = "Recipient realm name" },
+  { token = "{me}",       desc = "Your character name (alias: {myname})" },
+  { token = "{mylevel}",  desc = "Your character level" },
+  { token = "{myclass}",  desc = "Your character class" },
+  { token = "{myrace}",   desc = "Your character race" },
+  { token = "{myzone}",   desc = "Your current zone" },
+  { token = "{myguild}",  desc = "Your guild name" },
+  { token = "{greeting}", desc = "Good morning / afternoon / evening" },
+  { token = "{day}",      desc = "Current day of week (e.g. Monday)" },
+  { token = "{ask_num}",  desc = "Ask number for this contact (1, 2, ...)" },
+}
+
+local WEEKDAYS = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" }
+
+local function SafeStr(fn, ...)
+  if type(fn) ~= "function" then return "" end
+  local ok, v = pcall(fn, ...)
+  if ok and type(v) == "string" and ns.Readable(v) then return v end
+  if ok and type(v) == "number" then return tostring(v) end
+  return ""
+end
+
+local function TimeGreeting()
+  local d = (rawget(_G, "date") or (os and os.date))
+  local t = d and d("*t") or nil
+  local h = t and tonumber(t.hour) or 12
+  if h >= 5 and h < 12 then return "Good morning"
+  elseif h >= 12 and h < 18 then return "Good afternoon"
+  else return "Good evening" end
+end
+
+local function DayName()
+  local d = (rawget(_G, "date") or (os and os.date))
+  local t = d and d("*t") or nil
+  return (t and WEEKDAYS[t.wday]) or ""
+end
+
+local function ContactRealm(contact)
+  if contact and type(contact.full) == "string" then
+    local r = contact.full:match("%-(.+)$")
+    if r and r ~= "" then return r end
+  end
+  return SafeStr(GetRealmName)
+end
+
+-- Resolves every supported template variable for a contact + current player.
+function ns.BuildTemplateVars(contact)
+  local me = SafeStr(UnitName, "player")
+  if me == "" then me = tostring(ns.selfName or "") end
+  return {
+    name     = tostring(contact and contact.name or "?"),
+    level    = (contact and contact.level) and tostring(contact.level) or "",
+    class    = tostring(contact and contact.class or ""),
+    race     = tostring(contact and contact.race or ""),
+    zone     = tostring(contact and contact.zone or ""),
+    guild    = tostring(contact and contact.guild or ""),
+    realm    = ContactRealm(contact),
+    me       = me,
+    myname   = me,
+    mylevel  = SafeStr(UnitLevel, "player"),
+    myclass  = SafeStr(UnitClass, "player"),
+    myrace   = SafeStr(UnitRace, "player"),
+    myzone   = SafeStr(GetRealZoneText) ~= "" and SafeStr(GetRealZoneText) or SafeStr(GetZoneText),
+    myguild  = SafeStr(GetGuildInfo, "player"),
+    greeting = TimeGreeting(),
+    day      = DayName(),
+    ask_num  = tostring(((contact and tonumber(contact.attempts)) or 0) + 1),
+  }
+end
+
+-- Substitutes {tokens} safely (no string.format so stray "%" never throws).
+-- Collapses stray double spaces if an optional token (like {guild}) is empty,
+-- while preserving intentional line breaks when singleLine is false.
+function ns.FillTemplateText(contact, template, singleLine)
+  local t = tostring(template or "")
+  if t == "" then return "" end
+  local vars = ns.BuildTemplateVars(contact)
+  local out = t:gsub("{([%a_]+)}", function(key)
+    local val = vars[ns.StrLower(key)]
+    if val ~= nil then return val end
+    return "{" .. key .. "}"
+  end)
+  if singleLine then
+    out = out:gsub("%s*[\r\n]+%s*", " ")
+    out = out:gsub("  +", " ")
+    out = out:gsub("^%s+", ""):gsub("%s+$", "")
+  else
+    out = out:gsub("\r\n", "\n")
+    out = out:gsub("[ \t][ \t]+", " ")
+  end
+  return out
+end
+
 -- Deliberately not string.format: the template is user-authored text and a
 -- stray "%" would throw or mangle the output.
 function ns.RenderTemplate(contact, template)
   local t = template or (BegDB.settings.template or "")
   if not contact then return t end
-  local name  = tostring(contact.name or "?")
-  local level = contact.level and tostring(contact.level) or ""
-  local safeName  = name:gsub("%%", "%%%%")
-  local safeLevel = level:gsub("%%", "%%%%")
-  local out = t:gsub("{name}", safeName)
-  out = out:gsub("{level}", safeLevel)
-  -- A whisper is one line. A line break would cut the message in the chat box.
-  out = out:gsub("%s*[\r\n]+%s*", " ")
-  return out
+  return ns.FillTemplateText(contact, t, true)
 end
 
 ----------------------------------------------------------------------
@@ -335,15 +428,53 @@ end
 -- Each check is a client call that may be missing; a missing one just says no.
 local function Asks(fn, arg) return type(fn) == "function" and fn(arg) and true or false end
 
+local function InGuildRoster(shortLower)
+  if type(IsInGuild) == "function" and not IsInGuild() then return false end
+  if type(GetNumGuildMembers) ~= "function" or type(GetGuildRosterInfo) ~= "function" then return false end
+  local n = tonumber((GetNumGuildMembers())) or 0
+  for i = 1, n do
+    local gname = GetGuildRosterInfo(i)
+    if type(gname) == "string" and ns.Readable(gname) and ShortKey(gname) == shortLower then
+      return true
+    end
+  end
+  return false
+end
+
+local function InFriendsList(shortLower)
+  if C_FriendList and type(C_FriendList.GetNumFriends) == "function" and type(C_FriendList.GetFriendInfoByIndex) == "function" then
+    local n = tonumber((C_FriendList.GetNumFriends())) or 0
+    for i = 1, n do
+      local info = C_FriendList.GetFriendInfoByIndex(i)
+      if type(info) == "table" and type(info.name) == "string" and ns.Readable(info.name)
+         and ShortKey(info.name) == shortLower then
+        return true
+      end
+    end
+  elseif type(GetNumFriends) == "function" and type(GetFriendInfo) == "function" then
+    local n = tonumber((GetNumFriends())) or 0
+    for i = 1, n do
+      local fname = GetFriendInfo(i)
+      if type(fname) == "string" and ns.Readable(fname) and ShortKey(fname) == shortLower then
+        return true
+      end
+    end
+  end
+  return false
+end
+
 function ns.IsKnownPlayer(name)
   local short = ShortKey(name)
   if not short then return false end
   local at = ns.recentOut[short]
   if at and (GetTime() - at) < RECENT_OUT then return true end
   local bare = ns.ShortName(name)
-  return Asks(C_FriendList and C_FriendList.GetFriendInfo, bare)
-    or Asks(C_GuildInfo and C_GuildInfo.MemberExistsByName, bare)
-    or Asks(_G.UnitInParty, bare) or Asks(_G.UnitInRaid, bare)
+  if Asks(C_FriendList and C_FriendList.GetFriendInfo, bare)
+     or Asks(C_GuildInfo and C_GuildInfo.MemberExistsByName, bare)
+     or Asks(_G.UnitInParty, bare) or Asks(_G.UnitInRaid, bare) then
+    return true
+  end
+  return InFriendsList(short) or InGuildRoster(short)
 end
 
 function ns.OnWhisperOut(text, target)
@@ -375,6 +506,8 @@ function ns.OnWhisperOut(text, target)
     or (wasLoaded and (st == ns.STATUS.CONTACTED or st == ns.STATUS.ARCHIVED))
   if isAsk then
     c.attempts = (c.attempts or 0) + 1
+    ns.sessionFirstAskAt = ns.sessionFirstAskAt or time()
+    if ns.MarkGuildContacted then ns.MarkGuildContacted(c) end
     ns.SetStatus(c, ns.STATUS.CONTACTED)
   else
     if ns.RefreshUI then ns.RefreshUI() end

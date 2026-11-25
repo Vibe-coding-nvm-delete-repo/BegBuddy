@@ -9,11 +9,12 @@ local Sanitize = ns.Sanitize
 local ACCENT = { 0.36, 0.78, 1.00 }
 local WHITE = { 0.9, 0.9, 0.9 }
 
--- Prefer a real name from the queue over a placeholder, so the preview is the actual thing that will be sent.
+-- Prefer a real contact from the queue over a placeholder, so the preview is the actual thing that will be sent.
 function ns.SampleIdentity()
   local c = ns.ListFor(ns.STATUS.QUEUED)[1] or ns.ListFor(ns.STATUS.CONTACTED)[1]
-  if c then return c.name or "Sample", c.level, true end
-  return "Sample", 12, false
+  if c then return c.name or "Sample", c.level, true, c end
+  local fallback = { name = "Sample", level = 42, class = "Mage", race = "Human", zone = "Stormwind City", guild = "Knights of Azeroth" }
+  return fallback.name, fallback.level, false, fallback
 end
 
 -- Template picker, new copy and delete (asks twice: a deleted template cannot be recovered).
@@ -44,16 +45,22 @@ local function pickerRow(c)
   del:SetPoint("TOPLEFT", p, "TOPLEFT", 300, -26)
 end
 
--- The {name} / {level} buttons and the rename box.
+-- Clickable variable insert chips and the rename box.
+local QUICK_VARS = { "{name}", "{level}", "{class}", "{zone}", "{guild}", "{race}", "{greeting}", "{me}" }
+
 local function insertRows(c)
   local p = c.page
   local function insert(tok) c.box:SetFocus(); c.box:Insert(tok) end -- drops it in at the cursor
-  S.Label(p, "Insert:", 0, 60, WHITE)
-  S.Button(p, "{name}", 62, 50, 56, function() insert("{name}") end)
-  S.Button(p, "{level}", 62, 118, 56, function() insert("{level}") end)
-  S.Label(p, "click to drop one in at your cursor", 190, 60)
-  S.Label(p, "Rename to:", 0, 90, WHITE)
-  c.nameBox = S.Input(p, 150, 70, 86, 24)
+  S.Label(p, "Insert:", 0, 58, WHITE)
+  local x = 48
+  for _, tok in ipairs(QUICK_VARS) do
+    local w = math.max(46, #tok * 6 + 10)
+    S.Button(p, tok, w, x, 54, function() insert(tok) end)
+    x = x + w + 4
+  end
+  S.Label(p, "More: {realm} {mylevel} {myclass} {myrace} {myzone} {myguild} {day} {ask_num}", 0, 82)
+  S.Label(p, "Rename to:", 0, 104, WHITE)
+  c.nameBox = S.Input(p, 150, 70, 100, 24)
   c.nameBox:SetScript("OnEnterPressed", function(self)
     local ok, err = ns.RenameTemplate(BegDB.settings.activeTemplate, self:GetText())
     self:ClearFocus()
@@ -67,16 +74,16 @@ end
 -- Counter, then Undo / Trim to fit / Reset under the editor.
 local function editBar(c)
   local p, box = c.page, c.box
-  c.counter = S.Label(p, "", 0, 192)
-  c.measure = S.Note(p, "", 70, 192, 180)
-  S.Button(p, "Undo", 56, 258, 188, function()
+  c.counter = S.Label(p, "", 0, 206)
+  c.measure = S.Note(p, "", 70, 206, 180)
+  S.Button(p, "Undo", 56, 258, 202, function()
     local previous = c.undoValue
     if type(previous) ~= "string" then ns.Print("Nothing to undo yet.") return end
     c.undoValue = box:GetText() or ""
     box:SetText(previous)
     box:SetCursorPosition(0)
   end)
-  S.Button(p, "Trim to fit", 78, 320, 188, function()
+  S.Button(p, "Trim to fit", 78, 320, 202, function()
     local txt = box:GetText() or ""
     if #txt <= 255 then ns.Print("Already fits in 255 characters.") return end
     c.undoValue = txt
@@ -87,7 +94,7 @@ local function editBar(c)
     box:SetCursorPosition(0)
     ns.Print("Trimmed to fit. Undo puts it back.")
   end)
-  S.Button(p, "Reset", 58, 402, 188, function()
+  S.Button(p, "Reset", 58, 402, 202, function()
     c.undoValue = box:GetText() or ""
     box:SetText(ns.DEFAULT_TEMPLATE)
     box:SetCursorPosition(0)
@@ -109,10 +116,10 @@ local function refreshTemplate(c)
     c.counter:SetTextColor(0.50, 0.85, 0.50)
     c.measure:SetText(string.format("|cff8f8f96room for %d more.|r", 255 - n))
   end
-  local name, level, real = ns.SampleIdentity()
+  local name, level, real, sample = ns.SampleIdentity()
   c.prevLbl:SetText(real and ("Preview - exactly what " .. name .. " will see:")
-    or "Preview - scan someone and this uses their real name:")
-  local rendered = ns.RenderTemplate({ name = name, level = level }, txt)
+    or "Preview - scan someone and this uses their real contact:")
+  local rendered = ns.RenderTemplate(sample or { name = name, level = level }, txt)
   if #rendered > 260 then rendered = rendered:sub(1, 260) .. " [...]" end
   c.prevText:SetText(Sanitize(rendered))
   c.savedLbl:SetText("|cff7fe07fSaved|r")
@@ -192,24 +199,24 @@ function ns.SettingsWhisper(page)
   c.load = function() loadTemplate(c) end
   S.Note(page, "Saved as you type. Each named template keeps its own results.", 0, 0)
   c.box = S.Editor(page, 524, 72)
-  c.box:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -112)
+  c.box:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -126)
   pickerRow(c)
   insertRows(c)
   editBar(c)
-  c.prevLbl = S.Label(page, "", 0, 222)
-  c.prevText = S.Note(page, "", 4, 242, 516, { 0.90, 0.90, 0.92 })
-  c.savedLbl = S.Label(page, "", 0, 304, { 0.5, 0.88, 0.5 })
-  S.Label(page, "Results by template", 0, 330, ACCENT)
-  c.statsText = S.Note(page, "", 4, 350, 516, { 0.8, 0.8, 0.82 })
+  c.prevLbl = S.Label(page, "", 0, 232)
+  c.prevText = S.Note(page, "", 4, 252, 516, { 0.90, 0.90, 0.92 })
+  c.savedLbl = S.Label(page, "", 0, 314, { 0.5, 0.88, 0.5 })
+  S.Label(page, "Results by template", 0, 340, ACCENT)
+  c.statsText = S.Note(page, "", 4, 360, 516, { 0.8, 0.8, 0.82 })
   c.box:SetScript("OnTextChanged", function(self) onTyped(c, self) end)
   -- Off by default: strangers who whisper first (group leaders, guildmates, friends) are not begging leads.
   c.track = Z.Check(page, "Add people who whisper you first to Replied (never friends, guild, group or anyone you whispered)",
     function() return BegDB.settings.trackUnknownWhispers end,
     function(v) BegDB.settings.trackUnknownWhispers = v and true or false end)
-  c.track:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -390)
+  c.track:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -402)
   S.Add("message", page, {
     Load = function() c.load(); c.track:Refresh() end, Refresh = function() refreshStats(c) end, box = c.box,
     Hide = function() writeBack(c) end, track = c.track,
   })
-  return 420
+  return 436
 end

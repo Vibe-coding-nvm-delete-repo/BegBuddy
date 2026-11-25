@@ -76,6 +76,9 @@ local DEFAULTS = {
     replyGap = 2,            -- seconds between sends (replies and one-click sends)
     whoCapWarning = 50,      -- warn when a slice returns this many (likely truncated)
     rewhisperMinutes = 30,   -- do not re-ask the same person inside this window
+    guildCooldownMinutes = 60, -- do not message two members of the same guild inside this window (0 = off)
+    skipKnownPlayers = true, -- skip friends, guildmates, and party/raid members on /who
+    skipGuildless = false,   -- optional: skip players with no guild on /who
     showBlizzardWho = false, -- true = let the Blizzard Who window open on scans
     maxHistory = 40,         -- messages kept per contact
     trackUnknownWhispers = false, -- true = a stranger who whispers first becomes a Replied contact
@@ -89,6 +92,7 @@ local DEFAULTS = {
     successGold = 1000,      -- copper a person must send for "gold" (10 silver)
     statsMinSample = 30,     -- asks a row needs before its rate is trusted
     statsView = "template",  -- the Stats tab's breakdown
+    statsCohort = "level_class", -- the Cohorts subtab breakdown
   },
   cities = {},     -- zones the player added by hand (plus the old seeded capitals)
   zoneSel = nil,   -- [zone name] = true for every zone picked for scanning
@@ -96,6 +100,7 @@ local DEFAULTS = {
   progress = {},   -- [zoneString] = highest slice index completed
   contacts = {},   -- [lowercased full name] = contact
   order = {},      -- insertion order of contact keys
+  guildContactedAt = {}, -- [lowercased guild name] = unix timestamp of last ask to that guild
   templates = {},  -- ordered list of { name, text, sent, replied, funded }
   mailTemplates = {}, -- ordered list of { name, subject, body, sent, replied, funded }
   paused = false,

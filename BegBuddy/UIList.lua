@@ -200,7 +200,8 @@ end
 local function RowLabel(e, selectedKey)
   local prefix = (e.key == selectedKey) and "|cff5cc8ff>|r " or "  "
   local extra = ""
-  if ns.unread and ns.unread[e.key] then extra = extra .. " |cffff6060new|r" end
+  if ns.unread and ns.unread[e.key] then extra = extra .. " |cffff6060new|r"
+  elseif ns.NeedsReply and ns.NeedsReply(e) then extra = extra .. " |cff7fe07freply!|r" end
   if e.attempts and e.attempts > 1 then
     extra = extra .. string.format(" |cff888888x%d|r", e.attempts)
   end

@@ -73,6 +73,8 @@ function ns.EnsureContact(full, info)
       existing.class      = info.class      or existing.class
       existing.classToken = info.classToken or existing.classToken
       existing.zone       = info.zone       or existing.zone
+      if info.guild and info.guild ~= "" then existing.guild = info.guild end
+      if info.race  and info.race  ~= "" then existing.race  = info.race  end
     end
     return existing, false
   end
@@ -91,6 +93,8 @@ function ns.EnsureContact(full, info)
     c.class      = info.class
     c.classToken = info.classToken
     c.zone       = info.zone
+    if info.guild and info.guild ~= "" then c.guild = info.guild end
+    if info.race  and info.race  ~= "" then c.race  = info.race  end
   end
   BegDB.contacts[key] = c
   BegDB.order[#BegDB.order + 1] = key
@@ -108,6 +112,7 @@ function ns.PushHistory(c, dir, text)
   -- collide when a new message lands in the same second that an old one is
   -- trimmed off the front; this cannot.
   c.histVer = (tonumber(c.histVer) or 0) + 1
+  if dir == "in" or dir == "out" then ns.TouchList() end
   local cap = tonumber(BegDB.settings.maxHistory) or 40
   while #h > cap do table.remove(h, 1) end
 end
@@ -171,6 +176,7 @@ local function ForgetSession()
     for k in pairs(t) do t[k] = nil end
   end
   ns.warnCount, ns.firstWarnAt, ns.lastScan = 0, nil, nil
+  ns.sessionFirstAskAt, ns.sessionGoldIn, ns.sessionItemsIn = nil, 0, 0
   if ns.ClearSplits then ns.ClearSplits() end
   if ns.mail then ns.mail.lastResult = nil end
   if ns.UI and ns.UI.list then ns.UI.list.selectedKey = nil end
@@ -258,6 +264,79 @@ function ns.SortedList(status)
   sortedCache[status] = { ver = ns.listVer, by = st.listSort, desc = st.listSortDesc,
                           n = #BegDB.order, list = list }
   return list
+end
+
+-- True when a Replied contact spoke last (you haven't answered yet).
+function ns.NeedsReply(c)
+  if not c or c.status ~= ns.STATUS.REPLIED then return false end
+  local h = c.history
+  if type(h) ~= "table" or #h == 0 then return false end
+  for i = #h, 1, -1 do
+    local d = h[i] and h[i].dir
+    if d == "in" then return true end
+    if d == "out" then return false end
+  end
+  return false
+end
+
+function ns.NeedsReplyCount()
+  local n = 0
+  for _, c in pairs(BegDB.contacts or {}) do
+    if ns.NeedsReply(c) then n = n + 1 end
+  end
+  return n
+end
+
+-- In-memory (never persisted to SavedVariables) lowercased search haystack per contact,
+-- plus cached filtered list keyed on listVer + status + query + filter flags.
+local searchBlob, searchVer = {}, -1
+local filterCache = {}
+
+local function BlobFor(c)
+  if searchVer ~= ns.listVer then
+    searchBlob = {}
+    searchVer = ns.listVer
+  end
+  local b = searchBlob[c.key]
+  if not b then
+    b = StrLower(table.concat({
+      c.name or "", c.full or "", c.guild or "", c.zone or "",
+      c.class or "", c.race or "", c.note or "",
+    }, "\1"))
+    searchBlob[c.key] = b
+  end
+  return b
+end
+
+-- Fast filtered view of a tab's sorted contact list. Returns the cached sorted
+-- list directly with zero allocations when no search query or filter is active.
+function ns.FilteredList(status, query, opts)
+  local list = ns.SortedList(status)
+  local q = type(query) == "string" and StrLower(query:gsub("^%s+", ""):gsub("%s+$", "")) or ""
+  local needsReply = (opts and opts.needsReply) and true or false
+  local hasGuild   = (opts and opts.hasGuild) and true or false
+  if q == "" and not needsReply and not hasGuild then return list end
+
+  local st = BegDB.settings
+  local sig = table.concat({
+    tostring(ns.listVer), tostring(status), q,
+    tostring(needsReply), tostring(hasGuild),
+    tostring(st.listSort), tostring(st.listSortDesc),
+  }, "|")
+  local hit = filterCache[status]
+  if hit and hit.sig == sig then return hit.list end
+
+  local out = {}
+  for i = 1, #list do
+    local c = list[i]
+    local ok = true
+    if needsReply and not ns.NeedsReply(c) then ok = false end
+    if ok and hasGuild and (type(c.guild) ~= "string" or c.guild == "") then ok = false end
+    if ok and q ~= "" and BlobFor(c):find(q, 1, true) == nil then ok = false end
+    if ok then out[#out + 1] = c end
+  end
+  filterCache[status] = { sig = sig, list = out }
+  return out
 end
 
 -- Cuts a string to at most n bytes without splitting a UTF-8 character.

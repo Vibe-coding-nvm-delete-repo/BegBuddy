@@ -73,7 +73,8 @@ partner = "Stranger"
 Fire("TRADE_SHOW")
 Fire("TRADE_ACCEPT_UPDATE", 1, 1)
 Fire("UI_INFO_MESSAGE", 0, ERR_TRADE_COMPLETE)
-eq("a trade with someone you never asked is ignored", NS.FindContact("Stranger"), nil)
+local stranger = NS.FindContact("Stranger")
+truthy("an accepted trade from a non-known stranger auto-creates a funded contact", stranger ~= nil and stranger.status == "funded" and stranger.goldIn == 12345)
 UnitName = function() return nil end
 Fire("TRADE_SHOW")
 Fire("UI_INFO_MESSAGE", 0, ERR_TRADE_COMPLETE)

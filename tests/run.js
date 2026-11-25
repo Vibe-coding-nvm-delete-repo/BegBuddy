@@ -4,7 +4,23 @@ const fs = require("fs");
 const path = require("path");
 const { lua, lauxlib, lualib, to_luastring } = require("fengari");
 
-const { tocFiles } = require("../../tools/toc.cjs");
+// Self-contained TOC + XML loader (so standalone BegBuddy tests need no monorepo ../tools).
+const slashes = (s) => s.replace(/\\/g, "/");
+function xmlFiles(addonDir, rel) {
+  const dir = path.posix.dirname(rel);
+  const src = fs.readFileSync(path.join(addonDir, rel), "latin1");
+  return [...src.matchAll(/<Script\s+file="([^"]+)"/g)].map((m) => path.posix.join(dir, slashes(m[1])));
+}
+function tocFiles(addonDir, tocName) {
+  const lines = fs.readFileSync(path.join(addonDir, tocName), "latin1").split(/\r?\n/).map((l) => slashes(l.trim()));
+  const out = [];
+  for (const l of lines) {
+    if (l.startsWith("#") || !l) continue;
+    if (l.endsWith(".lua")) out.push(l);
+    else if (l.endsWith(".xml")) out.push(...xmlFiles(addonDir, l));
+  }
+  return out.map((f) => f.slice(0, -4));
+}
 
 const addon = path.join(__dirname, "..", "BegBuddy");
 const specs = process.argv.length > 2

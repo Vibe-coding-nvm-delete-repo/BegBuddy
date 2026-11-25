@@ -35,27 +35,36 @@ local function ReadWho(index)
     local zone  = a.area or a.zone
     local cls   = a.classStr or a.class
     local token = ns.ClassToken(a.classFile, a.classToken, a.filename, cls, a.classID)
-    return name, tonumber(a.level), token, cls, zone
+    local guild = ns.Readable(a.fullGuildName, a.guild) and (a.fullGuildName or a.guild) or nil
+    if guild == "" then guild = nil end
+    local race  = ns.Readable(a.raceStr, a.race) and (a.raceStr or a.race) or nil
+    if race == "" then race = nil end
+    return name, tonumber(a.level), token, cls, zone, guild, race
   end
 
   -- legacy: name, guild, level, race, class, zone
   if not ns.Readable(a, c, e, f) then return false end
-  return a, tonumber(c), ns.ClassToken(e), e, f
+  local guild = ns.Readable(b) and type(b) == "string" and b ~= "" and b or nil
+  local race  = ns.Readable(d) and type(d) == "string" and d ~= "" and d or nil
+  return a, tonumber(c), ns.ClassToken(e), e, f, guild, race
 end
 
--- Adds one /who result to the contacts. Returns "added", "skipped" (a non-Latin
--- name the setting filters out) or nil.
+-- Adds one /who result to the contacts. Returns "added", "skipped" (filtered
+-- out by non-Latin, known-player, or guildless rules) or nil.
 local function HarvestOne(i, selfShort)
-  local name, level, classToken, classStr, zone = ReadWho(i)
+  local name, level, classToken, classStr, zone, guild, race = ReadWho(i)
   if not name or name == "" then return nil end
   local short = ns.ShortName(name)
   local isSelf = selfShort and short and ns.StrLower(short) == selfShort
-  if BegDB.settings.skipNonLatin and ns.IsNonLatinName(short) then return "skipped" end
   if isSelf then return nil end
+  if BegDB.settings.skipNonLatin and ns.IsNonLatinName(short) then return "skipped" end
+  if BegDB.settings.skipKnownPlayers and ns.IsKnownPlayer and ns.IsKnownPlayer(name) then return "skipped" end
+  if BegDB.settings.skipGuildless and (not guild or guild == "") then return "skipped" end
   -- EnsureContact leaves existing status alone, so anyone already
   -- declined / blocked / funded is never resurrected into the queue.
   local _, created = ns.EnsureContact(name, {
     level = level, classToken = classToken, class = classStr, zone = zone,
+    guild = guild, race = race,
   })
   return created and "added" or nil
 end

@@ -60,15 +60,43 @@ local function TooSoonReason(contact, status)
   end
 end
 
--- Guards the two ways this goes wrong: double-clicking the same name by
--- accident, and re-sending the opener to somebody already asked. Rapid fire
--- makes both easy, and a stranger getting the same beg twice is a report.
+-- Spacing out outreach per guild prevents two members of the same guild from
+-- receiving the same opener back-to-back and calling it out in /g.
+local function GuildCooldownReason(contact, status)
+  if status ~= ns.STATUS.QUEUED then return nil end
+  local guild = contact.guild
+  if type(guild) ~= "string" or guild == "" then return nil end
+  local mins = tonumber(BegDB.settings and BegDB.settings.guildCooldownMinutes) or 0
+  if mins <= 0 then return nil end
+  local map = BegDB.guildContactedAt
+  if type(map) ~= "table" then return nil end
+  local lastAt = map[ns.StrLower(guild)]
+  if not lastAt then return nil end
+  local elapsed = math.max(0, time() - lastAt) / 60
+  if elapsed < mins then
+    return string.format("Already messaged <%s> %.0f min ago. Wait another %d min.",
+      guild, elapsed, math.ceil(mins - elapsed))
+  end
+end
+
+-- Record that we just messaged someone in this guild so other guildmates are
+-- held for guildCooldownMinutes.
+function ns.MarkGuildContacted(contact)
+  if not contact or type(contact.guild) ~= "string" or contact.guild == "" then return end
+  BegDB.guildContactedAt = type(BegDB.guildContactedAt) == "table" and BegDB.guildContactedAt or {}
+  BegDB.guildContactedAt[ns.StrLower(contact.guild)] = time()
+end
+
+-- Guards the ways this goes wrong: double-clicking the same name by accident,
+-- re-sending the opener to somebody already asked, or hitting two members of
+-- the same guild back-to-back.
 function ns.CanWhisper(contact)
   if not contact then return false, "No contact selected." end
 
   local status = contact.status
   local why = ClosedReason(contact, status) or DoubleClickReason(contact)
     or UnconfirmedReason(contact, status) or TooSoonReason(contact, status)
+    or GuildCooldownReason(contact, status)
   if why then return false, why end
   return true
 end

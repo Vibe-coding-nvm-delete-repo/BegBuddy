@@ -15,9 +15,22 @@ ns.STATS_VIEWS = {
   { id = "day",      label = "Day" },
   { id = "method",   label = "Whisper / mail" },
   { id = "ask",      label = "Ask #" },
+  { id = "cohorts",  label = "Cohorts" },
 }
 ns.STATS_VIEW_IDS = {}
 for _, v in ipairs(ns.STATS_VIEWS) do ns.STATS_VIEW_IDS[v.id] = true end
+
+ns.COHORT_VIEWS = {
+  { id = "level_class",     label = "Level x Class" },
+  { id = "zone_level",      label = "Zone x Level" },
+  { id = "guild_status",    label = "Guild vs Solo" },
+  { id = "guild_top",       label = "Top Guilds" },
+  { id = "template_method", label = "Template x Channel" },
+  { id = "time_zone",       label = "Time x Zone" },
+}
+ns.COHORT_VIEW_IDS = {}
+for _, v in ipairs(ns.COHORT_VIEWS) do ns.COHORT_VIEW_IDS[v.id] = true end
+
 -- Views that read best in their natural order (level 10, 20, 30...) rather than biggest first.
 ns.STATS_NATURAL = { level = true, time = true, day = true, method = true, ask = true }
 ns.STATS_GOLD_STEPS   = { 100, 1000, 5000, 10000, 50000, 100000 } -- copper: 1s 10s 50s 1g 5g 10g
@@ -118,6 +131,47 @@ function KEYS.ask(c)
   return "3rd+ ask", 3
 end
 
+-- Cohort key functions (multi-dimensional breakdowns for the Cohorts subtab)
+local COHORT_KEYS = {}
+
+function COHORT_KEYS.level_class(c)
+  local lvlLabel, lo = KEYS.level(c)
+  local cls, _, token = KEYS.class(c)
+  return lvlLabel .. " " .. cls, lo, token
+end
+
+function COHORT_KEYS.zone_level(c)
+  local z = c.zone or "Unknown"
+  local lvlLabel, lo = KEYS.level(c)
+  return z .. " · " .. lvlLabel, lo
+end
+
+function COHORT_KEYS.guild_status(c)
+  if type(c.guild) == "string" and c.guild ~= "" then
+    return "In a Guild", 1
+  end
+  return "Guildless", 2
+end
+
+function COHORT_KEYS.guild_top(c)
+  if type(c.guild) == "string" and c.guild ~= "" then
+    return "<" .. c.guild .. ">", 0
+  end
+  return "(Guildless)", 1
+end
+
+function COHORT_KEYS.template_method(c)
+  local tpl = c.templateUsed or "(no template)"
+  local ch  = (c.templateKind == "mail") and "Mail" or "Whisper"
+  return tpl .. " (" .. ch .. ")", 0
+end
+
+function COHORT_KEYS.time_zone(c, d)
+  local tLabel, block = KEYS.time(c, d)
+  local z = c.zone or "Unknown"
+  return tLabel .. " · " .. z, block
+end
+
 ----------------------------------------------------------------------
 -- Passes over the contacts
 ----------------------------------------------------------------------
@@ -152,12 +206,14 @@ local function tally(ctx, c)
   if not wasAsked(c) then return end
 
   fn.asked = fn.asked + 1
+  local at = askTime(c)
+  if at and (not fn.firstAskAt or at < fn.firstAskAt) then fn.firstAskAt = at end
   if gotReply(c) then fn.replied = fn.replied + 1 end
   if gotFunded(c) then fn.funded = fn.funded + 1 end
   if isSuccess(c, ctx.stage, ctx.goldMin) then fn.success = fn.success + 1 end
-  local r = minutes(askTime(c), c.repliedAt)
+  local r = minutes(at, c.repliedAt)
   if r then ctx.replyMins[#ctx.replyMins + 1] = r end
-  local g = minutes(askTime(c), c.fundedAt)
+  local g = minutes(at, c.fundedAt)
   if g then ctx.fundMins[#ctx.fundMins + 1] = g end
 end
 
@@ -165,17 +221,15 @@ local function compute(stage, goldMin, minSample)
   local ctx = {
     stage = stage, goldMin = goldMin, replyMins = {}, fundMins = {},
     funnel = { found = 0, asked = 0, replied = 0, funded = 0, success = 0, declined = 0, blocked = 0,
-      archived = 0, gold = 0, items = 0, funders = 0 },
+      archived = 0, gold = 0, items = 0, funders = 0, firstAskAt = nil },
   }
   for _, c in pairs(BegDB.contacts or {}) do tally(ctx, c) end
-  return { funnel = ctx.funnel, views = {}, sorted = {}, stage = stage, goldMin = goldMin, minSample = minSample,
+  return { funnel = ctx.funnel, views = {}, cohorts = {}, sorted = {}, stage = stage, goldMin = goldMin, minSample = minSample,
     medianReply = median(ctx.replyMins), medianFund = median(ctx.fundMins) }
 end
 
--- One breakdown: a row per label, with the asks, replies, funders, successes and gold behind it.
-local function buildView(st, view)
-  local keyOf, rows = KEYS[view], {}
-  local needsClock = view == "time" or view == "day"
+local function buildRows(st, keyOf, needsClock)
+  local rows = {}
   for _, c in pairs(BegDB.contacts or {}) do
     if wasAsked(c) then
       local label, order, token = keyOf(c, needsClock and clock(askTime(c)) or nil)
@@ -193,10 +247,43 @@ local function buildView(st, view)
   for _, r in pairs(rows) do
     r.rate = r.success / r.sent
     r.goldPerAsk = r.gold / r.sent
+    r.goldPerReply = r.replied > 0 and (r.gold / r.replied) or 0
     r.few = r.sent < st.minSample -- too few asks to trust the rate
     list[#list + 1] = r
   end
   return list
+end
+
+-- One breakdown: a row per label, with the asks, replies, funders, successes and gold behind it.
+local function buildView(st, view)
+  local keyOf = KEYS[view]
+  local needsClock = view == "time" or view == "day"
+  return buildRows(st, keyOf, needsClock)
+end
+
+local function buildCohort(st, cohort)
+  local keyOf = COHORT_KEYS[cohort]
+  local needsClock = cohort == "time_zone"
+  return buildRows(st, keyOf, needsClock)
+end
+
+-- Gold per hour from the very first message sent (all-time and current session).
+-- Clamps elapsed time to >= 60s so the first few seconds don't display absurd spikes.
+function ns.GoldPerHour(nowTs)
+  local now = nowTs or time()
+  local st = ns.Stats()
+  local fn = st.funnel
+  local totalGold = fn.gold or 0
+  local firstAt = fn.firstAskAt
+  local elapsed = firstAt and math.max(60, now - firstAt) or 0
+  local gph = (firstAt and elapsed > 0) and (totalGold * 3600 / elapsed) or 0
+
+  local sessStart = ns.sessionFirstAskAt
+  local sessGold  = ns.sessionGoldIn or 0
+  local sessSec   = sessStart and math.max(60, now - sessStart) or 0
+  local sessGph   = (sessStart and sessSec > 0) and (sessGold * 3600 / sessSec) or 0
+
+  return gph, totalGold, elapsed, firstAt, sessGph, sessGold, sessSec
 end
 
 local cache
@@ -216,17 +303,17 @@ end
 ----------------------------------------------------------------------
 
 local function comparator(key, desc)
-  local trust = key == "rate" or key == "goldPerAsk" -- a rate from a handful of asks must not top the list
+  local trust = key == "rate" or key == "goldPerAsk" or key == "goldPerReply" -- a rate from a handful of asks must not top the list
   return function(a, b)
     if trust and a.few ~= b.few then return b.few end
-    local x, y = a[key], b[key]
+    local x, y = a[key] or 0, b[key] or 0
     if x == y then return a.label < b.label end
     if desc then return x > y end
     return x < y
   end
 end
 
--- key: label, order, sent, replied, funded, success, rate, gold or goldPerAsk.
+-- key: label, order, sent, replied, funded, success, rate, gold, goldPerReply, goldPerAsk or items.
 function ns.StatsRows(view, key, desc)
   local st = ns.Stats()
   if not KEYS[view] then return {} end
@@ -236,6 +323,22 @@ function ns.StatsRows(view, key, desc)
   if not list then
     list = {}
     for i, r in ipairs(st.views[view]) do list[i] = r end
+    table.sort(list, comparator(key, desc))
+    st.sorted[id] = list
+  end
+  return list
+end
+
+-- Sorted rows for one cohort dimension in the Cohorts subtab.
+function ns.CohortRows(cohort, key, desc)
+  local st = ns.Stats()
+  if not COHORT_KEYS[cohort] then return {} end
+  if not st.cohorts[cohort] then st.cohorts[cohort] = buildCohort(st, cohort) end
+  local id = "cohort|" .. cohort .. "|" .. key .. "|" .. tostring(desc)
+  local list = st.sorted[id]
+  if not list then
+    list = {}
+    for i, r in ipairs(st.cohorts[cohort]) do list[i] = r end
     table.sort(list, comparator(key, desc))
     st.sorted[id] = list
   end
