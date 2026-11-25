@@ -35,7 +35,18 @@ Restart the client, or `/reload` if it was already running.
 cd tests
 npm ci
 node run.js
+node ..\copilot\test-copilot.mjs
 ```
+
+### BegBuddy Copilot (AI Reply Helper)
+
+An optional, safe human-in-the-loop companion app that watches WoW's built-in `/chatlog` (`WoWChatLog.txt`), drafts natural replies via DeepSeek, and auto-copies the newest reply to your clipboard so you just press **`R` → `Ctrl+V` → `Enter`** in WoW. Never touches WoW memory or injects keystrokes.
+
+```powershell
+.\Start-Copilot.ps1
+```
+
+Type `/chatlog` once in WoW, paste your DeepSeek API key in the corner HUD (saved locally in gitignored `copilot/config.local.json`), and set your current location.
 
 ### Template Variables
 
