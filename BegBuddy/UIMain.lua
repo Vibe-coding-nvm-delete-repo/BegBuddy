@@ -37,14 +37,14 @@ local function MainHeader(f)
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
     GameTooltip:SetText("Gold per Hour (from 1st message sent)", 1, 0.82, 0)
     if ns.GoldPerHour and ns.Coins then
-      local gph, totalGold, elapsed, firstAt, sessGph, sessGold, sessSec = ns.GoldPerHour()
+      local _, totalGold, activeSec, firstAt, sessGph, sessGold, sessSec, allActiveGph = ns.GoldPerHour()
+      if sessSec and sessSec > 0 then
+        GameTooltip:AddLine(string.format("This session: %s / hr  (%s over %.0f min)", ns.Coins(math.floor(sessGph)), ns.Coins(sessGold), sessSec / 60), 0.5, 0.95, 0.5)
+      end
       if firstAt then
-        GameTooltip:AddLine(string.format("All-time: %s / hr  (%s over %.1f hrs)", ns.Coins(math.floor(gph)), ns.Coins(totalGold), elapsed / 3600), 1, 1, 1)
+        GameTooltip:AddLine(string.format("All-time (active): %s / hr  (%s over %.1f active hrs)", ns.Coins(math.floor(allActiveGph or 0)), ns.Coins(totalGold), activeSec / 3600), 1, 1, 1)
       else
         GameTooltip:AddLine("Send your first message to start tracking Gold/hr.", 0.8, 0.8, 0.8)
-      end
-      if ns.sessionFirstAskAt then
-        GameTooltip:AddLine(string.format("This session: %s / hr  (%s over %.0f min)", ns.Coins(math.floor(sessGph)), ns.Coins(sessGold), sessSec / 60), 0.5, 0.95, 0.5)
       end
       local st = ns.Stats()
       local fn = st.funnel

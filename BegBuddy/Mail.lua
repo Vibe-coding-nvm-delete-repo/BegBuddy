@@ -224,7 +224,7 @@ local function OnSendSuccess()
   local st = c.status
   if st == ns.STATUS.QUEUED or st == ns.STATUS.CONTACTED or st == ns.STATUS.ARCHIVED then
     c.attempts = (c.attempts or 0) + 1
-    ns.sessionFirstAskAt = ns.sessionFirstAskAt or time()
+    if ns.TouchSessionAsk then ns.TouchSessionAsk() else ns.sessionFirstAskAt = ns.sessionFirstAskAt or time() end
     if ns.MarkGuildContacted then ns.MarkGuildContacted(c) end
     ns.SetStatus(c, ns.STATUS.CONTACTED)
   elseif ns.RefreshUI then
@@ -350,18 +350,26 @@ local function AnnounceMail(c, subject, money, wasReturned, items)
 end
 
 -- True when this mail was already handled. Gold and items are left out of the key: taking them out of a mail must
--- not make it look new. A mail first seen without gold that now shows gold is handled once more, as gold.
-local function MailSeen(c, sig, money)
-  local seen = c.mailIn[sig]
+-- not make it look new. A mail's expiration hour (now + daysLeft*86400 rounded to 1h) stays stable when looting
+-- attachments, while distinguishing a second mail sent later with the same/blank subject. Legacy keys (without
+-- expiration hour) are still honoured so older SavedVariables never double-count.
+local function MailSeen(c, sig, legacySig, expHour, money)
+  local seen = c.mailIn[sig] or c.mailIn[legacySig]
+  if not seen and expHour then
+    seen = c.mailIn[legacySig .. "|" .. tostring(expHour - 1)]
+      or c.mailIn[legacySig .. "|" .. tostring(expHour + 1)]
+  end
   return seen, seen and not (seen ~= "gold" and money > 0)
 end
 
 -- Handles one inbox mail for one contact. Returns true when it was new.
-local function NoteMail(c, subject, money, wasReturned, items)
+local function NoteMail(c, subject, money, wasReturned, items, daysLeft)
   c.mailIn = type(c.mailIn) == "table" and c.mailIn or {}
   money = tonumber(money) or 0
-  local sig = tostring(subject) .. "|" .. tostring(wasReturned and true or false)
-  local seen, handled = MailSeen(c, sig, money)
+  local legacySig = tostring(subject) .. "|" .. tostring(wasReturned and true or false)
+  local expHour = tonumber(daysLeft) and math.floor((time() + tonumber(daysLeft) * 86400) / 3600 + 0.5) or nil
+  local sig = expHour and (legacySig .. "|" .. tostring(expHour)) or legacySig
+  local seen, handled = MailSeen(c, sig, legacySig, expHour, money)
   if handled then return false end
   c.mailIn[sig] = money > 0 and "gold" or true
   -- Items count the first time the mail is seen only; a mail that later shows gold adds just the gold.
@@ -373,10 +381,13 @@ local function NoteMail(c, subject, money, wasReturned, items)
   return true
 end
 
--- The contact a mail sender is, if you mailed them.
-local function MailedContact(sender)
+-- The contact a mail sender is. Any non-blocked contact in BegDB gets credited
+-- for gift mails (gold or items); text-only mails require prior outreach.
+local function MailedContact(sender, hasGift)
   local c = type(sender) == "string" and sender ~= "" and ns.FindContact(sender) or nil
-  if c and (c.mailedAt or (c.attempts or 0) > 0) then return c end
+  if not c then return nil end
+  if hasGift and c.status ~= ns.STATUS.BLOCKED then return c end
+  if c.mailedAt or (c.attempts or 0) > 0 then return c end
 end
 
 -- Reads only the headers (sender, subject, gold), never the mail itself, so
@@ -386,10 +397,11 @@ function ns.ScanInbox()
   local n = tonumber((GetInboxNumItems())) or 0
   local found = 0
   for i = 1, n do
-    local _, _, sender, subject, money, _, _, hasItem, _, wasReturned = GetInboxHeaderInfo(i)
-    local c = ns.Readable(sender, subject, money) and MailedContact(sender) or nil
+    local _, _, sender, subject, money, _, daysLeft, hasItem, _, wasReturned = GetInboxHeaderInfo(i)
     local items = (ns.Readable(hasItem) and (tonumber(hasItem) or (hasItem and 1))) or 0
-    if c and NoteMail(c, subject, money, wasReturned, items) then found = found + 1 end
+    local hasGift = (not wasReturned) and ((tonumber(money) or 0) > 0 or items > 0)
+    local c = ns.Readable(sender, subject, money) and MailedContact(sender, hasGift) or nil
+    if c and NoteMail(c, subject, money, wasReturned, items, ns.Readable(daysLeft) and daysLeft or nil) then found = found + 1 end
   end
   if found > 0 and ns.RefreshUI then ns.RefreshUI() end
 end

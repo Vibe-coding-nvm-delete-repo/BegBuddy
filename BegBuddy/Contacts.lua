@@ -136,13 +136,21 @@ function ns.SetStatus(c, status, note)
 
   -- Count each outcome exactly once per contact, against the template that
   -- earned it, so the per-template rates cannot inflate on repeat messages.
+  -- A direct-to-Funded contact (e.g. trade without a prior whisper reply) also
+  -- counts as replied so template counters stay consistent with Stats.lua.
   if status == ns.STATUS.REPLIED and not c.countedReplied then
     c.countedReplied = true
     ns.RecordOutcome(c, "replied")
-  elseif status == ns.STATUS.FUNDED and not c.countedFunded then
-    c.countedFunded = true
-    c.fundedAt = c.fundedAt or now
-    ns.RecordOutcome(c, "funded")
+  elseif status == ns.STATUS.FUNDED then
+    if not c.countedReplied then
+      c.countedReplied = true
+      ns.RecordOutcome(c, "replied")
+    end
+    if not c.countedFunded then
+      c.countedFunded = true
+      c.fundedAt = c.fundedAt or now
+      ns.RecordOutcome(c, "funded")
+    end
   end
 
   if ns.RefreshUI then ns.RefreshUI() end

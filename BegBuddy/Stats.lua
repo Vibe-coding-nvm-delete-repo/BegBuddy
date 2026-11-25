@@ -280,23 +280,96 @@ local function buildCohort(st, cohort)
   return buildRows(st, keyOf, needsClock)
 end
 
--- Gold per hour from the very first message sent (all-time and current session).
--- Clamps elapsed time to >= 60s so the first few seconds don't display absurd spikes.
+-- Persisted session tracker (survives /reload as long as last activity was within 30 min).
+local SESSION_IDLE_SEC = 30 * 60
+
+function ns.TouchSessionAsk(nowTs)
+  local now = nowTs or time()
+  local s = BegDB and BegDB.session
+  if type(s) ~= "table" or not s.lastAt or (now - s.lastAt) > SESSION_IDLE_SEC then
+    s = { startAt = now, lastAt = now, gold = 0, items = 0 }
+    if BegDB then BegDB.session = s end
+  else
+    s.startAt = s.startAt or now
+    s.lastAt = now
+  end
+  ns.sessionFirstAskAt = s.startAt
+  ns.sessionGoldIn = s.gold or 0
+  ns.sessionItemsIn = s.items or 0
+end
+
+function ns.TouchSessionGift(copper, items, nowTs)
+  local now = nowTs or time()
+  local s = BegDB and BegDB.session
+  if type(s) ~= "table" or not s.lastAt or (now - s.lastAt) > SESSION_IDLE_SEC then
+    s = { startAt = now, lastAt = now, gold = 0, items = 0 }
+    if BegDB then BegDB.session = s end
+  else
+    s.startAt = s.startAt or now
+    s.lastAt = now
+  end
+  s.gold  = (s.gold or 0) + math.max(tonumber(copper) or 0, 0)
+  s.items = (s.items or 0) + math.max(tonumber(items) or 0, 0)
+  ns.sessionFirstAskAt = s.startAt
+  ns.sessionGoldIn = s.gold
+  ns.sessionItemsIn = s.items
+end
+
+-- Computes total active outreach seconds across all contacts by merging activity
+-- timestamps separated by <= 30 min (excludes offline/sleep gaps so all-time GPH
+-- doesn't collapse to 6c/hr after sleeping).
+local function activeSeconds(now)
+  local times = {}
+  for _, c in pairs(BegDB.contacts or {}) do
+    local t1 = askTime(c)
+    if t1 then times[#times + 1] = t1 end
+    if c.repliedAt then times[#times + 1] = c.repliedAt end
+    if c.fundedAt then times[#times + 1] = c.fundedAt end
+  end
+  if #times == 0 then return 0 end
+  table.sort(times)
+  local total = 0
+  local spanStart, spanEnd = times[1], times[1]
+  for i = 2, #times do
+    local t = times[i]
+    if (t - spanEnd) <= SESSION_IDLE_SEC then
+      spanEnd = t
+    else
+      total = total + math.max(60, spanEnd - spanStart)
+      spanStart, spanEnd = t, t
+    end
+  end
+  -- If the latest activity is still within the active window, count up to now.
+  if (now - spanEnd) <= SESSION_IDLE_SEC then spanEnd = math.max(spanEnd, now) end
+  total = total + math.max(60, spanEnd - spanStart)
+  return math.max(60, total)
+end
+
+-- Gold per hour from the 1st message sent.
+-- Returns: displayGph, totalGold, activeSec, firstAt, sessGph, sessGold, sessSec, allActiveGph
+-- displayGph prefers active Session GPH (persisted across /reload for 30 min) so
+-- the top bar always shows your live motivating rate, falling back to Active All-Time GPH.
 function ns.GoldPerHour(nowTs)
   local now = nowTs or time()
   local st = ns.Stats()
   local fn = st.funnel
   local totalGold = fn.gold or 0
   local firstAt = fn.firstAskAt
-  local elapsed = firstAt and math.max(60, now - firstAt) or 0
-  local gph = (firstAt and elapsed > 0) and (totalGold * 3600 / elapsed) or 0
+  local actSec = firstAt and activeSeconds(now) or 0
+  local allActiveGph = (firstAt and actSec > 0) and (totalGold * 3600 / actSec) or 0
 
-  local sessStart = ns.sessionFirstAskAt
-  local sessGold  = ns.sessionGoldIn or 0
+  local s = BegDB and BegDB.session
+  local sActive = type(s) == "table" and s.lastAt and (now - s.lastAt) <= SESSION_IDLE_SEC
+  if type(s) == "table" and not sActive then
+    ns.sessionFirstAskAt, ns.sessionGoldIn, ns.sessionItemsIn = nil, 0, 0
+  end
+  local sessStart = sActive and s.startAt or (type(s) ~= "table" and ns.sessionFirstAskAt or nil)
+  local sessGold  = sActive and (s.gold or 0) or (type(s) ~= "table" and (ns.sessionGoldIn or 0) or 0)
   local sessSec   = sessStart and math.max(60, now - sessStart) or 0
   local sessGph   = (sessStart and sessSec > 0) and (sessGold * 3600 / sessSec) or 0
 
-  return gph, totalGold, elapsed, firstAt, sessGph, sessGold, sessSec
+  local displayGph = (sessStart and sessGold > 0) and sessGph or allActiveGph
+  return displayGph, totalGold, actSec, firstAt, sessGph, sessGold, sessSec, allActiveGph
 end
 
 local cache

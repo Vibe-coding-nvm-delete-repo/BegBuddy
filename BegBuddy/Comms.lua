@@ -506,7 +506,7 @@ function ns.OnWhisperOut(text, target)
     or (wasLoaded and (st == ns.STATUS.CONTACTED or st == ns.STATUS.ARCHIVED))
   if isAsk then
     c.attempts = (c.attempts or 0) + 1
-    ns.sessionFirstAskAt = ns.sessionFirstAskAt or time()
+    if ns.TouchSessionAsk then ns.TouchSessionAsk() else ns.sessionFirstAskAt = ns.sessionFirstAskAt or time() end
     if ns.MarkGuildContacted then ns.MarkGuildContacted(c) end
     ns.SetStatus(c, ns.STATUS.CONTACTED)
   else

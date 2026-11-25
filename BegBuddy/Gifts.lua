@@ -34,8 +34,12 @@ function ns.RecordGift(c, copper, items, how, itemList)
   c.goldIn  = (c.goldIn or 0) + addCopper
   c.itemsIn = (c.itemsIn or 0) + addItems
   c.fundedAt = c.fundedAt or now
-  ns.sessionGoldIn  = (ns.sessionGoldIn or 0) + addCopper
-  ns.sessionItemsIn = (ns.sessionItemsIn or 0) + addItems
+  if ns.TouchSessionGift then
+    ns.TouchSessionGift(addCopper, addItems)
+  else
+    ns.sessionGoldIn  = (ns.sessionGoldIn or 0) + addCopper
+    ns.sessionItemsIn = (ns.sessionItemsIn or 0) + addItems
+  end
   c.gifts = type(c.gifts) == "table" and c.gifts or {}
   local rec = { t = now, gold = addCopper, items = addItems, how = how }
   if type(itemList) == "table" and #itemList > 0 then
@@ -113,7 +117,7 @@ end
 local function snapshotLive()
   if not trade.open then return end
   if not trade.name then trade.name = partnerName() end
-  if not trade.meta then trade.meta = partnerMeta() end
+  if not trade.meta or not trade.meta.class then trade.meta = partnerMeta() end
   trade.liveCopper, trade.liveUnits, trade.liveItems = offered()
 end
 
@@ -129,6 +133,7 @@ end
 function ns.TradeAccepted(playerAccepted, targetAccepted)
   if not trade.open then trade.open = true end
   if not trade.name then trade.name = partnerName() end
+  if not trade.meta or not trade.meta.class then trade.meta = partnerMeta() end
   if targetAccepted == 1 or targetAccepted == true then
     local copper, units, itemList = offered()
     if copper == 0 and units == 0 and ((trade.liveCopper or 0) > 0 or (trade.liveUnits or 0) > 0) then

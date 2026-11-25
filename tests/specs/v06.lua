@@ -236,3 +236,60 @@ eq("direct trader appears in Level x Class cohort table", lcDirect[1] and lcDire
 eq("cohort row carries direct trader gold", lcDirect[1] and lcDirect[1].gold, 25000)
 eq("cohort row carries direct trader items", lcDirect[1] and lcDirect[1].items, 1)
 
+-- 10. Data Integrity Fixes: Active GPH, Repeat Mail Dedup, Mail from attempts=0, Template Replied Drift --
+-- A. Active GPH excludes 10-day offline gap
+Reset()
+local now2 = time()
+local oldC = NS.EnsureContact("OldFunder", { level = 50, class = "Mage" })
+oldC.attempts = 1; oldC.firstContactedAt = now2 - 864000; oldC.contactedAt = now2 - 864000
+oldC.fundedAt = now2 - 862200; oldC.status = "funded"; oldC.countedFunded = true; oldC.goldIn = 50000 -- 5g over 30m active, 10 days ago
+NS.TouchList()
+local gphActive, _, actSec = NS.GoldPerHour(now2)
+eq("Active GPH excludes 10-day offline gap (30m active = 1800s)", actSec, 1800)
+eq("Active GPH is 10g/hr (100000c), not diluted by 10 days offline", math.floor(gphActive + 0.5), 100000)
+
+-- B. Session GPH persists across /reload via BegDB.session
+NS.TouchSessionAsk(now2 - 900)
+NS.TouchSessionGift(25000, 1, now2)
+NS.sessionFirstAskAt, NS.sessionGoldIn = nil, 0 -- simulate /reload clearing runtime locals
+local dispGph, _, _, _, sessGph = NS.GoldPerHour(now2)
+eq("Session GPH survives /reload (2.5g in 15m = 10g/hr)", math.floor(sessGph + 0.5), 100000)
+eq("Top bar prefers active Session GPH", math.floor(dispGph + 0.5), 100000)
+-- After >30m idle WITHOUT /reload, session expires cleanly and falls back to Active All-Time GPH
+NS.TouchSessionAsk(now2 - 900)
+NS.TouchSessionGift(25000, 1, now2)
+local dispAfterIdle, _, _, _, sessGphIdle, _, _, allGphIdle = NS.GoldPerHour(now2 + 2400)
+eq("Expired session (>30m idle without /reload) resets sessGph to 0", sessGphIdle, 0)
+eq("Top bar falls back cleanly to Active All-Time GPH after idle", math.floor(dispAfterIdle + 0.5), math.floor(allGphIdle + 0.5))
+
+-- C. Repeat mail gifts with same/blank subject on different days are BOTH counted
+Reset()
+local inbox2 = {}
+GetInboxNumItems = function() return #inbox2 end
+GetInboxHeaderInfo = function(i)
+  local m = inbox2[i]
+  return nil, nil, m.sender, m.subject, m.money or 0, 0, m.daysLeft or 30, m.items or 0, false, false
+end
+local mSender = NS.EnsureContact("MailPatron", { level = 60, class = "Priest" }) -- attempts = 0!
+inbox2 = { { sender = "MailPatron", subject = "Thanks", money = 10000, daysLeft = 29.5 } }
+Fire("MAIL_INBOX_UPDATE")
+eq("mail gift from attempts=0 contact is credited", mSender.goldIn, 10000)
+eq("mail gift marks them funded", mSender.status, "funded")
+-- Second mail arrives next day with identical subject
+inbox2 = {
+  { sender = "MailPatron", subject = "Thanks", money = 0, daysLeft = 29.5 }, -- looted first mail
+  { sender = "MailPatron", subject = "Thanks", money = 15000, daysLeft = 30.0 }, -- new second mail
+}
+Fire("MAIL_INBOX_UPDATE")
+eq("second mail with same subject is NOT dropped", mSender.goldIn, 25000)
+
+-- D. Direct-to-Funded credits both template.replied AND template.funded (no counter drift)
+Reset()
+local dC = NS.EnsureContact("DirectTradeTpl", { level = 55, class = "Rogue" })
+NS.RecordSent(dC)
+NS.SetStatus(dC, NS.STATUS.CONTACTED)
+NS.SetStatus(dC, NS.STATUS.FUNDED)
+eq("direct-to-Funded credits template.replied to match Stats.lua", NS.ActiveTemplate().replied, 1)
+eq("direct-to-Funded credits template.funded", NS.ActiveTemplate().funded, 1)
+
+
